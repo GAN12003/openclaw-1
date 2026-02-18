@@ -1,0 +1,20 @@
+{
+  "name": "piclaw-runtime",
+  "version": "0.1.0",
+  "description": "Minimal embedded runtime for Raspberry Pi — standalone, no OpenClaw dependency",
+  "private": true,
+  "main": "piclaw.js",
+  "scripts": {
+    "start": "node piclaw.js",
+    "gateway": "node gateway/server.js"
+  },
+  "dependencies": {
+    "express": "^4.22.1",
+    "node-telegram-bot-api": "^0.66.0",
+    "nodemailer": "^6.10.1",
+    "systeminformation": "^5.23.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
