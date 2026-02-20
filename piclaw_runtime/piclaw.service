@@ -1,0 +1,18 @@
+[Unit]
+Description=Piclaw Runtime
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=piclaw-01
+WorkingDirectory=/opt/piclaw
+ExecStart=/usr/bin/node /opt/piclaw/piclaw.js
+EnvironmentFile=/etc/piclaw.env
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

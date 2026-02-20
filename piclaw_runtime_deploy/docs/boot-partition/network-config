@@ -1,0 +1,11 @@
+# piclaw-node: WiFi on first boot (cloud-init)
+network:
+  version: 2
+  wifis:
+    wlan0:
+      dhcp4: true
+      optional: false
+      access-points:
+        "Semsems House":
+          password: "Sbou3iii"
+      regulatory-domain: DE

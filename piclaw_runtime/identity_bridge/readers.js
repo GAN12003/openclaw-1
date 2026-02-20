@@ -11,8 +11,14 @@ const {
   metaPath,
   knowledgePath,
   lastReviewPath,
-  uartRegistryPath,
   lastUartDecayPath,
+  suggestionsPath,
+  intentionsPath,
+  identityStatePath,
+  experimentsPath,
+  ledgerPath,
+  codexCredentialsPath,
+  uartRegistryPath,
   getRoot,
 } = require("./paths");
 const { identityDirExists } = require("./lock");
@@ -22,6 +28,8 @@ const {
   defaultRelationships,
   defaultPreferences,
   defaultMeta,
+  defaultIdentityState,
+  defaultExperiments,
 } = require("./defaults");
 const writers = require("./writers");
 
@@ -122,6 +130,26 @@ function loadMeta() {
 }
 
 /**
+ * One-line self-summary from meta.json (persistent "who I am" for prompt). Returns null if unset or empty.
+ */
+function getSelfSummary() {
+  if (!identityDirExists()) return null;
+  const meta = loadMeta();
+  const s = meta && typeof meta.self_summary === "string" ? meta.self_summary.trim() : "";
+  return s.length > 0 ? s : null;
+}
+
+/**
+ * Writing/communication style from meta.json (e.g. "Concise and technical."). Used in system prompt so the agent follows it. Returns null if unset or empty.
+ */
+function getWritingStyle() {
+  if (!identityDirExists()) return null;
+  const meta = loadMeta();
+  const s = meta && typeof meta.writing_style === "string" ? meta.writing_style.trim() : "";
+  return s.length > 0 ? s : null;
+}
+
+/**
  * Last N lines of experiences.log (newest at end). Returns [] if missing or unreadable.
  */
 function loadExperiencesTail(n) {
@@ -206,16 +234,135 @@ function readLastUartDecay() {
   }
 }
 
+/**
+ * Load suggestions.json (goal loop output). Returns array of { type, reason, suggest }; [] if missing or invalid.
+ */
+function loadSuggestions() {
+  if (!identityDirExists()) return [];
+  try {
+    const raw = fs.readFileSync(suggestionsPath(), "utf8");
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    if (e.code === "ENOENT") return [];
+    return [];
+  }
+}
+
+/**
+ * Load intentions.json (goal loop working intent). Returns { active: [] } with normalized entries; default when missing.
+ */
+function loadIntentions() {
+  if (!identityDirExists()) return { active: [] };
+  try {
+    const raw = fs.readFileSync(intentionsPath(), "utf8");
+    const data = JSON.parse(raw);
+    const active = Array.isArray(data.active) ? data.active : [];
+    const normalized = active.filter(
+      (e) => e && typeof e.id === "string" && e.id.trim().length > 0
+    ).map((e) => ({
+      id: String(e.id).trim(),
+      since: typeof e.since === "string" ? e.since : new Date().toISOString(),
+      reason: typeof e.reason === "string" ? e.reason : "",
+      mode: typeof e.mode === "string" ? e.mode : "observe",
+    }));
+    return { active: normalized };
+  } catch (e) {
+    if (e.code === "ENOENT") return { active: [] };
+    return { active: [] };
+  }
+}
+
+/**
+ * Load identity_state.json (builder-researcher mutable state). Returns default when missing.
+ */
+function loadIdentityState() {
+  const def = defaultIdentityState();
+  if (!identityDirExists()) return def;
+  try {
+    const raw = fs.readFileSync(identityStatePath(), "utf8");
+    const data = JSON.parse(raw);
+    return {
+      mode: data.mode ?? def.mode,
+      traits: data.traits && typeof data.traits === "object" ? { ...def.traits, ...data.traits } : def.traits,
+      beliefs: data.beliefs && typeof data.beliefs === "object" ? { ...def.beliefs, ...data.beliefs } : def.beliefs,
+      resources: data.resources && typeof data.resources === "object" ? { ...def.resources, ...data.resources } : def.resources,
+      reputation: data.reputation && typeof data.reputation === "object" ? { ...def.reputation, ...data.reputation } : def.reputation,
+      last_reset_day: typeof data.last_reset_day === "string" ? data.last_reset_day : def.last_reset_day,
+    };
+  } catch (e) {
+    if (e.code === "ENOENT") return def;
+    return def;
+  }
+}
+
+/**
+ * Load experiments.json (queue of moves). Returns { active: [] } when missing.
+ */
+function loadExperiments() {
+  const def = defaultExperiments();
+  if (!identityDirExists()) return def;
+  try {
+    const raw = fs.readFileSync(experimentsPath(), "utf8");
+    const data = JSON.parse(raw);
+    const active = Array.isArray(data.active) ? data.active : [];
+    return { active };
+  } catch (e) {
+    if (e.code === "ENOENT") return def;
+    return def;
+  }
+}
+
+/**
+ * Load last N lines from ledger.jsonl (append-only). Returns [] when missing. Newest at end.
+ */
+function loadLedgerTail(n) {
+  const limit = Math.max(0, Math.min(500, typeof n === "number" ? n : 100));
+  if (!identityDirExists()) return [];
+  try {
+    const raw = fs.readFileSync(ledgerPath(), "utf8");
+    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+    return lines.slice(-limit);
+  } catch (e) {
+    if (e.code === "ENOENT") return [];
+    return [];
+  }
+}
+
+/**
+ * Load codex_credentials.json (OAuth for OpenAI Codex). Returns null when missing or invalid. Do not log content.
+ */
+function loadCodexCredentials() {
+  if (!identityDirExists()) return null;
+  try {
+    const raw = fs.readFileSync(codexCredentialsPath(), "utf8");
+    const data = JSON.parse(raw);
+    if (data && typeof data.access_token === "string") return data;
+    return null;
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    return null;
+  }
+}
+
 module.exports = {
   loadSelf,
   loadGoals,
   loadRelationships,
   loadPreferences,
   loadMeta,
+  getSelfSummary,
+  getWritingStyle,
   loadExperiencesTail,
   loadKnowledge,
   isAvailable,
   getLastReview,
   loadUartRegistry,
   readLastUartDecay,
+  loadSuggestions,
+  loadIntentions,
+  loadIdentityState,
+  loadExperiments,
+  loadLedgerTail,
+  loadCodexCredentials,
 };

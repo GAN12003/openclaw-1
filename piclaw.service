@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
+User=piclaw-01
 WorkingDirectory=/opt/piclaw/current
 ExecStart=/usr/bin/node /opt/piclaw/current/piclaw.js
 EnvironmentFile=/etc/piclaw.env

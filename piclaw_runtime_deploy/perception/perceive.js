@@ -1,0 +1,26 @@
+"use strict";
+
+/**
+ * Perception: turn raw signals into sensory events, then interpret and express.
+ * Does not change decisions. Only gives meaning and voice to what already happens.
+ * Never triggers GPIO / install / network — only interpret → express.
+ */
+
+const interpret = require("./interpret");
+const express = require("./express");
+
+function emit(type, payload) {
+  if (!type || typeof type !== "string") return;
+  const event = {
+    type,
+    payload: payload != null && typeof payload === "object" ? payload : {},
+    at: new Date().toISOString(),
+  };
+  const narrative = interpret.interpret(event);
+  if (narrative) {
+    const opts = type === "wake" ? { notify: true } : {};
+    express.say(narrative, opts);
+  }
+}
+
+module.exports = { emit };

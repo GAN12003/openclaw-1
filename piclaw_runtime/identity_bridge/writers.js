@@ -16,6 +16,11 @@ const {
   lastReviewPath,
   lastReviewHashPath,
   suggestionsPath,
+  intentionsPath,
+  identityStatePath,
+  experimentsPath,
+  ledgerPath,
+  codexCredentialsPath,
   uartRegistryPath,
   lastUartDecayPath,
   getRoot,
@@ -27,6 +32,8 @@ const {
   defaultGoals,
   defaultRelationships,
   defaultPreferences,
+  defaultIdentityState,
+  defaultExperiments,
 } = require("./defaults");
 
 const EXPERIENCES_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -163,6 +170,19 @@ function writeSuggestions(jsonArray) {
 }
 
 /**
+ * Write intentions.json (goal loop working intent). Expects data.active (array). Uses lock + atomic write.
+ */
+function writeIntentions(data) {
+  if (!identityDirExists()) return null;
+  return withLock(() => {
+    const active = Array.isArray(data && data.active) ? data.active : [];
+    const content = JSON.stringify({ active }, null, 2);
+    atomicWrite(intentionsPath(), content);
+    return true;
+  });
+}
+
+/**
  * Append to goal_history.log (goal loop). Uses lock. Rotates at 5 MB like experiences.
  */
 function appendGoalHistory(line) {
@@ -278,6 +298,113 @@ function writeLastUartDecay(isoString) {
   });
 }
 
+/**
+ * Update meta.json self_summary (one-line persistent summary for prompt). Max 500 chars.
+ */
+function writeSelfSummary(text) {
+  if (!identityDirExists()) return null;
+  return withLock(() => {
+    const readers = require("./readers");
+    const meta = readers.loadMeta();
+    const next = String(text != null ? text : "").trim().slice(0, 500);
+    meta.self_summary = next;
+    atomicWrite(metaPath(), JSON.stringify(meta, null, 2));
+    return true;
+  });
+}
+
+/**
+ * Update meta.json writing_style (how to write replies: tone, formality, length). Max 500 chars. Used in system prompt.
+ */
+function writeWritingStyle(text) {
+  if (!identityDirExists()) return null;
+  return withLock(() => {
+    const readers = require("./readers");
+    const meta = readers.loadMeta();
+    const next = String(text != null ? text : "").trim().slice(0, 500);
+    meta.writing_style = next;
+    atomicWrite(metaPath(), JSON.stringify(meta, null, 2));
+    return true;
+  });
+}
+
+/**
+ * Write identity_state.json (builder-researcher mutable state). Uses lock + atomic write.
+ */
+function writeIdentityState(data) {
+  if (!identityDirExists()) return null;
+  return withLock(() => {
+    const state = data && typeof data === "object" ? data : defaultIdentityState();
+    atomicWrite(identityStatePath(), JSON.stringify(state, null, 2));
+    return true;
+  });
+}
+
+/**
+ * Write experiments.json (queue of moves). Uses lock + atomic write.
+ */
+function writeExperiments(data) {
+  if (!identityDirExists()) return null;
+  return withLock(() => {
+    const payload = data && typeof data === "object" && Array.isArray(data.active) ? { active: data.active } : defaultExperiments();
+    atomicWrite(experimentsPath(), JSON.stringify(payload, null, 2));
+    return true;
+  });
+}
+
+/**
+ * Append one JSON line to ledger.jsonl (append-only). Uses lock. Line must be a JSON-serializable object.
+ */
+function appendLedgerLine(entry) {
+  if (!identityDirExists()) return null;
+  const line = typeof entry === "object" ? JSON.stringify(entry) : String(entry);
+  const content = (line.endsWith("\n") ? line : line + "\n");
+  return withLock(() => {
+    fs.appendFileSync(ledgerPath(), content, "utf8");
+    const fd = fs.openSync(ledgerPath(), "r");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    return true;
+  });
+}
+
+/**
+ * If last_reset_day is not today, reset api_budget_spent_today to 0 and set last_reset_day to today; write back.
+ * Call before any budget check. Uses lock + atomic write.
+ */
+function ensureDailyBudgetReset() {
+  if (!identityDirExists()) return null;
+  return withLock(() => {
+    const readers = require("./readers");
+    const state = readers.loadIdentityState();
+    const today = new Date().toISOString().slice(0, 10);
+    if (state.last_reset_day === today) return true;
+    state.resources = state.resources || {};
+    state.resources.api_budget_spent_today = 0;
+    state.last_reset_day = today;
+    atomicWrite(identityStatePath(), JSON.stringify(state, null, 2));
+    return true;
+  });
+}
+
+/**
+ * Write codex_credentials.json (OAuth tokens for OpenAI Codex). Uses lock + atomic write. Do not log content.
+ */
+function writeCodexCredentials(data) {
+  if (!identityDirExists()) return null;
+  if (!data || typeof data !== "object") return null;
+  return withLock(() => {
+    const payload = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: data.expires_at,
+      account_id: data.account_id,
+    };
+    atomicWrite(codexCredentialsPath(), JSON.stringify(payload, null, 2));
+    return true;
+  });
+}
+
 module.exports = {
   atomicWrite,
   recoverCorrupt,
@@ -286,6 +413,7 @@ module.exports = {
   ensureFile,
   seedSelfFromState,
   writeSuggestions,
+  writeIntentions,
   appendGoalHistory,
   writeLastReview,
   updateKnowledge,
@@ -293,4 +421,11 @@ module.exports = {
   readLastReviewHash,
   writeUartRegistry,
   writeLastUartDecay,
+  writeSelfSummary,
+  writeWritingStyle,
+  writeIdentityState,
+  writeExperiments,
+  appendLedgerLine,
+  ensureDailyBudgetReset,
+  writeCodexCredentials,
 };

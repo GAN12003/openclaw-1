@@ -9,20 +9,97 @@ const TelegramBot = require("node-telegram-bot-api");
  */
 
 function createBot(getStatusText, options = {}) {
-  const token = process.env.PICLAW_TELEGRAM_TOKEN;
-  if (!token || !token.trim()) {
+  const token = (process.env.PICLAW_TELEGRAM_TOKEN || "").trim();
+  console.log("[piclaw] Telegram token length:", token.length);
+  if (!token) {
     return null;
   }
 
   const bot = new TelegramBot(token, { polling: true });
+  console.log("[piclaw] Telegram polling started");
+
+  // User-friendly command menu (shown when user types / in Telegram)
+  bot.setMyCommands([
+    { command: "status", description: "System status" },
+    { command: "whoami", description: "Identity & goals" },
+    { command: "menu", description: "Quick actions" },
+    { command: "help", description: "All commands" },
+    { command: "setup", description: "Setup & env keys" },
+    { command: "github", description: "GitHub auth" },
+    { command: "twitter", description: "Twitter status" },
+    { command: "hw", description: "Hardware (UART, GPIO)" },
+    { command: "update", description: "Apply update" },
+  ]).catch((err) => console.warn("[piclaw] setMyCommands failed:", err.message));
+
+  bot.on("polling_error", (err) => {
+    console.error("[piclaw] Telegram polling_error:", err.message);
+  });
+
+  bot.on("message", async (msg) => {
+    const text = (msg.text || "").trim();
+    if (!text) return;
+    const chatId = msg.chat.id;
+    try {
+      console.log("[piclaw] Telegram received:", JSON.stringify(text.slice(0, 80)));
+      if (!text.startsWith("/") && typeof options.getPendingEnvKey === "function" && typeof options.appendEnv === "function") {
+        const key = options.getPendingEnvKey(chatId);
+        if (key) {
+          const result = await options.appendEnv(key, text);
+          if (result && result.ok) {
+            try {
+              await bot.deleteMessage(chatId, msg.message_id);
+            } catch (_) {}
+            if (typeof options.clearPendingEnvKey === "function") options.clearPendingEnvKey(chatId);
+            await bot.sendMessage(chatId, "Saved. Restart Piclaw to apply: sudo systemctl restart piclaw");
+            if (typeof options.restartPiclaw === "function") {
+              try {
+                await options.restartPiclaw();
+              } catch (_) {}
+            }
+          } else {
+            await bot.sendMessage(chatId, "Failed: " + (result.reason || "unknown"));
+          }
+          return;
+        }
+      }
+      if (text.startsWith("/")) return;
+      if (typeof options.isPendingCodexRedirect === "function" && options.isPendingCodexRedirect(chatId)) {
+        if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId)) return;
+        if (typeof options.completeCodexLogin === "function" && options.completeCodexLogin(chatId, text)) {
+          await bot.sendMessage(chatId, "Submitting redirect URL…");
+          return;
+        }
+      }
+      if (typeof options.onChatMessage === "function") {
+        console.log("[piclaw] Telegram: chat message, calling onChatMessage");
+        try {
+          const reply = await options.onChatMessage(text, chatId);
+          if (reply) {
+            await bot.sendMessage(chatId, reply);
+            console.log("[piclaw] Telegram: sent chat reply (" + String(reply).length + " chars)");
+          } else {
+            console.log("[piclaw] Telegram: chat returned empty reply");
+          }
+        } catch (err) {
+          console.error("[piclaw] chat error:", err.message);
+          await bot.sendMessage(chatId, `Error: ${err.message}`);
+        }
+      } else {
+        console.log("[piclaw] Telegram: no onChatMessage handler");
+      }
+    } catch (_) {}
+  });
 
   bot.onText(/\/status/, async (msg) => {
     const chatId = msg.chat.id;
+    console.log("[piclaw] Telegram: /status from chat " + chatId);
     try {
+      await bot.sendMessage(chatId, "One moment...");
       const text = await getStatusText();
       await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
     } catch (err) {
-      await bot.sendMessage(chatId, `Error: ${err.message}`);
+      console.error("[piclaw] Telegram /status error:", err.message);
+      try { await bot.sendMessage(chatId, `Error: ${err.message}`); } catch (_) {}
     }
   });
 
@@ -285,13 +362,213 @@ function createBot(getStatusText, options = {}) {
         if (result.ok) {
           await bot.sendMessage(chatId, "Update requested — switching slot on next restart.");
         } else {
-          await bot.sendMessage(chatId, `Update failed (code ${result.code}). ${result.stderr || result.stdout || ""}`.trim().slice(0, 400));
+          const stderr = (result.stderr || "").toLowerCase();
+          const friendly = /not found|command not found|enoent/.test(stderr)
+            ? "A/B update not set up. Install piclaw-update and slots (see docs/AB-UPDATE.md)."
+            : `${result.stderr || result.stdout || "unknown"}`.trim().slice(0, 400);
+          await bot.sendMessage(chatId, `Update failed. ${friendly}`);
         }
       } catch (err) {
         await bot.sendMessage(chatId, `Error: ${err.message}`);
       }
     });
   }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.setPendingEnvKey === "function" && typeof options.appendEnv === "function") {
+    bot.onText(/\/set_key\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      const key = (match[1] || "").trim();
+      try {
+        if (!options.isOwnerChat(chatId)) {
+          await bot.sendMessage(chatId, "Only the owner chat can set env keys.");
+          return;
+        }
+        if (typeof options.isAllowedKey === "function" && !options.isAllowedKey(key)) {
+          await bot.sendMessage(chatId, "Key not allowed. Use /setup to see allowed keys.");
+          return;
+        }
+        options.setPendingEnvKey(chatId, key);
+        await bot.sendMessage(chatId, "Send the value in your next message. I'll add it and delete your message.");
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+    bot.onText(/\/setup/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        let text = "<b>Setup</b>\n\n";
+        if (typeof options.getMissingIntegrations === "function") {
+          const missing = options.getMissingIntegrations();
+          if (missing && missing.length > 0) {
+            text += "Missing: " + missing.join(", ") + "\n\n";
+          }
+        }
+        if (typeof options.isIdentityAvailable === "function" && !options.isIdentityAvailable()) {
+          text += "Identity not configured. Create /opt/piclaw_identity (see DEPLOY.md) or run on the Pi: <code>node scripts/bootstrap-identity.js</code>\n\n";
+        }
+        text += "To set a key: /set_key KEY_NAME then send the value in your next message (I'll delete it).\n\n";
+        if (typeof options.getAllowedKeys === "function") {
+          const keys = options.getAllowedKeys();
+          if (keys && keys.length) text += "Allowed keys: " + keys.slice(0, 15).join(", ") + (keys.length > 15 ? "…" : "");
+        }
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  if (typeof options.startCodexLogin === "function") {
+    bot.onText(/\/codex_login/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId)) {
+        await bot.sendMessage(chatId, "Only the owner can start Codex login.");
+        return;
+      }
+      try {
+        await options.startCodexLogin(chatId, {
+          sendMessage: (t) => bot.sendMessage(chatId, t),
+          onComplete: (err, result) => {
+            const msg2 = err ? "Codex auth failed: " + err.message : "Codex authorized.";
+            bot.sendMessage(chatId, msg2).catch(() => {});
+          },
+        });
+      } catch (err) {
+        await bot.sendMessage(chatId, "Error: " + err.message);
+      }
+    });
+  }
+  if (typeof options.getExperimentsText === "function") {
+    bot.onText(/\/experiments/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        const text = await options.getExperimentsText();
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+  if (typeof options.runExperiment === "function") {
+    bot.onText(/\/run_experiment\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      const id = (match && match[1] || "").trim();
+      if (!id) {
+        await bot.sendMessage(chatId, "Usage: /run_experiment <id>");
+        return;
+      }
+      try {
+        const result = await options.runExperiment(id);
+        const text = result.ok
+          ? (result.message || "Done.")
+          : `Failed: ${result.reason || result.message || "unknown"}`;
+        await bot.sendMessage(chatId, text);
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  bot.onText(/\/menu/, async (msg) => {
+    const chatId = msg.chat.id;
+    try {
+      await bot.sendMessage(chatId, "Choose an action:", {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "📊 Status", callback_data: "menu:status" },
+              { text: "👤 Who am I", callback_data: "menu:whoami" },
+            ],
+            [
+              { text: "⚙️ Setup", callback_data: "menu:setup" },
+              { text: "❓ Help", callback_data: "menu:help" },
+            ],
+            [{ text: "💬 Just chat — send a message below", callback_data: "menu:chat" }],
+          ],
+        },
+      });
+    } catch (err) {
+      try { await bot.sendMessage(chatId, `Error: ${err.message}`); } catch (_) {}
+    }
+  });
+
+  bot.on("callback_query", async (query) => {
+    const data = (query.data || "").trim();
+    const chatId = query.message?.chat?.id;
+    const msgId = query.message?.message_id;
+    if (!data.startsWith("menu:") || !chatId) return;
+    try {
+      await bot.answerCallbackQuery(query.id);
+      const action = data.slice(5);
+      if (action === "status") {
+        const text = await getStatusText();
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } else if (action === "whoami" && typeof options.getWhoamiText === "function") {
+        const text = await options.getWhoamiText();
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } else if (action === "setup") {
+        let text = "<b>Setup</b>\n\n";
+        if (typeof options.getMissingIntegrations === "function") {
+          const missing = options.getMissingIntegrations();
+          if (missing && missing.length > 0) text += "Missing: " + missing.join(", ") + "\n\n";
+        }
+        if (typeof options.isIdentityAvailable === "function" && !options.isIdentityAvailable()) {
+          text += "Identity: not configured. Run on the Pi: <code>node scripts/bootstrap-identity.js</code>\n\n";
+        }
+        text += "Use /set_key KEY_NAME then send the value in your next message. /help for full list.";
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } else if (action === "help") {
+        const helpLines = [
+          "<b>Commands</b>",
+          "/status — system status",
+          "/whoami — identity, mission, goals",
+          "/menu — quick actions (this)",
+          "/setup — env keys & missing integrations",
+          "/github, /twitter — auth status",
+          "/hw, /gpio — hardware",
+          "/update — apply update",
+          "/help — full command list",
+          "",
+          "Send any message to chat with me.",
+        ];
+        await bot.sendMessage(chatId, helpLines.join("\n"), { parse_mode: "HTML" });
+      } else if (action === "chat") {
+        await bot.sendMessage(chatId, "Send me a message and I'll reply using my identity and memory.");
+      }
+    } catch (err) {
+      try { await bot.sendMessage(chatId, `Error: ${err.message}`); } catch (_) {}
+    }
+  });
+
+  bot.onText(/\/help/, async (msg) => {
+    const chatId = msg.chat.id;
+    const helpLines = [
+      "<b>Commands</b>",
+      "/status — system status",
+      "/whoami — identity, mission, goals",
+      "/menu — quick actions (buttons)",
+      "/review_status — last goal review",
+      "/selfcheck — runtime slot, version",
+      "/hw — hardware (UART, GPIO)",
+      "/github — GitHub auth",
+      "/twitter — Twitter status",
+      "/mailtest — test SMTP",
+      "/probe_uart — run UART probe",
+      "/uart_devices — list UART devices",
+      "/gpio — GPIO control (pulse/set)",
+      "/update — apply update (needs A/B setup)",
+      "/setup — list missing integrations, set env keys",
+      "/experiments — list builder-researcher experiments (queue)",
+      "/run_experiment &lt;id&gt; — run one experiment by id",
+      "/codex_login — start Codex OAuth; open URL, then paste redirect URL here",
+      "/set_key KEY — then send value (I delete the message)",
+      "/help — this message",
+      "",
+      "Send normal text to chat with me (identity + memory).",
+    ];
+    await bot.sendMessage(chatId, helpLines.join("\n"), { parse_mode: "HTML" });
+  });
 
   bot.on("polling_error", (err) => {
     console.error("[piclaw] Telegram polling error:", err.message);
