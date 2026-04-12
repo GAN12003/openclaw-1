@@ -68,7 +68,8 @@ function createBot(getStatusText, options = {}) {
       }
       if (text.startsWith("/")) return;
       if (typeof options.isPendingCodexRedirect === "function" && options.isPendingCodexRedirect(chatId)) {
-        if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId)) return;
+        const fromId = msg.from && msg.from.id;
+        if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId, fromId)) return;
         if (typeof options.completeCodexLogin === "function" && options.completeCodexLogin(chatId, text)) {
           await bot.sendMessage(chatId, "Submitting redirect URL…");
           return;
@@ -78,11 +79,16 @@ function createBot(getStatusText, options = {}) {
         console.log("[piclaw] Telegram: chat message, calling onChatMessage");
         try {
           const reply = await options.onChatMessage(text, chatId);
-          if (reply) {
+          const out = reply != null ? String(reply).trim() : "";
+          if (out) {
             await bot.sendMessage(chatId, reply);
             console.log("[piclaw] Telegram: sent chat reply (" + String(reply).length + " chars)");
           } else {
             console.log("[piclaw] Telegram: chat returned empty reply");
+            await bot.sendMessage(
+              chatId,
+              "I did not get a non-empty reply to send. Try a shorter question or /status. If this repeats, check logs: journalctl -u piclaw -n 80"
+            );
           }
         } catch (err) {
           console.error("[piclaw] chat error:", err.message);
@@ -393,7 +399,7 @@ function createBot(getStatusText, options = {}) {
     bot.onText(/\/showupdates/, async (msg) => {
       const chatId = msg.chat.id;
       try {
-        if (!options.isOwnerChat(chatId)) {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
           await bot.sendMessage(chatId, "Only the owner chat can run /showupdates.");
           return;
         }
@@ -411,7 +417,7 @@ function createBot(getStatusText, options = {}) {
     bot.onText(/\/suggestgit/, async (msg) => {
       const chatId = msg.chat.id;
       try {
-        if (!options.isOwnerChat(chatId)) {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
           await bot.sendMessage(chatId, "Only the owner chat can run /suggestgit.");
           return;
         }
@@ -428,15 +434,22 @@ function createBot(getStatusText, options = {}) {
     bot.onText(/^\/updateandrestart(?:@\S+)?$/, async (msg) => {
       const chatId = msg.chat.id;
       try {
-        if (!options.isOwnerChat(chatId)) {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
+          const fromId = msg.from && msg.from.id;
           await bot.sendMessage(
             chatId,
             [
-              "Only the owner chat can run /updateandrestart.",
+              "Only the owner can run /updateandrestart.",
               "",
               `This chat id: <code>${chatId}</code>`,
-              "Set <code>PICLAW_TELEGRAM_CHAT_ID</code> in <code>/opt/piclaw/.env</code> to that value (or use /set_key), then restart piclaw.",
-            ].join("\n"),
+              fromId != null ? `Your Telegram user id: <code>${fromId}</code>` : "",
+              "",
+              "In <b>private</b> chat with the bot, set <code>PICLAW_TELEGRAM_CHAT_ID</code> to your user id.",
+              "In a <b>group</b>, set <code>PICLAW_TELEGRAM_OWNER_USER_IDS</code> to your numeric user id (comma-separated if several), then restart piclaw.",
+              "Or add the group chat id to <code>PICLAW_TELEGRAM_CHAT_ID</code> (comma-separated).",
+            ]
+              .filter(Boolean)
+              .join("\n"),
             { parse_mode: "HTML" }
           );
           return;
@@ -464,7 +477,7 @@ function createBot(getStatusText, options = {}) {
     bot.onText(/\/usage/, async (msg) => {
       const chatId = msg.chat.id;
       try {
-        if (!options.isOwnerChat(chatId)) {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
           await bot.sendMessage(chatId, "Only the owner chat can run /usage.");
           return;
         }
@@ -481,7 +494,7 @@ function createBot(getStatusText, options = {}) {
       const chatId = msg.chat.id;
       const key = (match[1] || "").trim();
       try {
-        if (!options.isOwnerChat(chatId)) {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
           await bot.sendMessage(chatId, "Only the owner chat can set env keys.");
           return;
         }
@@ -523,7 +536,7 @@ function createBot(getStatusText, options = {}) {
   if (typeof options.startCodexLogin === "function") {
     bot.onText(/\/codex_login/, async (msg) => {
       const chatId = msg.chat.id;
-      if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId)) {
+      if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId, msg.from && msg.from.id)) {
         await bot.sendMessage(chatId, "Only the owner can start Codex login.");
         return;
       }

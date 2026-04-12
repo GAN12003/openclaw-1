@@ -251,7 +251,8 @@ const SET_WRITING_STYLE_TOOL = {
  */
 async function chatWithTools(messages, apiKey, executeTool) {
   const tools = [EXEC_TOOL, MEMORY_TOOL, READ_FILE_TOOL, LEARN_TOOL, SET_SELF_SUMMARY_TOOL, SET_WRITING_STYLE_TOOL];
-  const maxRounds = 10;
+  const parsed = parseInt(process.env.PICLAW_CHAT_MAX_TOOL_ROUNDS || "16", 10);
+  const maxRounds = Number.isFinite(parsed) ? Math.min(32, Math.max(4, parsed)) : 16;
   let round = 0;
 
   while (round < maxRounds) {
@@ -300,7 +301,9 @@ async function chatWithTools(messages, apiKey, executeTool) {
     return content || "(no reply)";
   }
 
-  return "(agent loop limit reached)";
+  return (
+    "(agent loop limit reached — try a narrower question, or raise PICLAW_CHAT_MAX_TOOL_ROUNDS up to 32 in .env and restart.)"
+  );
 }
 
 module.exports = { chat, chatWithTools, EXEC_TOOL, MEMORY_TOOL, READ_FILE_TOOL, LEARN_TOOL, SET_SELF_SUMMARY_TOOL, SET_WRITING_STYLE_TOOL };

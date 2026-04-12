@@ -3,19 +3,41 @@
 
 const fs = require("fs");
 const path = require("path");
-const envPath = path.join(__dirname, ".env");
-try {
-  const raw = fs.readFileSync(envPath, "utf8");
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
+
+/** Split comma/whitespace-separated env lists (Telegram ids). */
+function parseCommaSeparatedEnv(value) {
+  return String(value || "")
+    .trim()
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Load KEY=value from runtime .env; do not wipe PICLAW_TELEGRAM_CHAT_ID with an empty line (common placeholder). */
+function loadRuntimeDotEnv(envPath) {
+  try {
+    const raw = fs.readFileSync(envPath, "utf8");
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
       const idx = trimmed.indexOf("=");
       const key = trimmed.slice(0, idx).trim();
       const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
-      if (key) process.env[key] = val;
+      if (!key) continue;
+      if (
+        key === "PICLAW_TELEGRAM_CHAT_ID" &&
+        val === "" &&
+        process.env[key] &&
+        String(process.env[key]).trim() !== ""
+      ) {
+        continue;
+      }
+      process.env[key] = val;
     }
-  }
-} catch (_) {}
+  } catch (_) {}
+}
+
+loadRuntimeDotEnv(path.join(__dirname, ".env"));
 
 /**
  * Piclaw — minimal embedded runtime for Raspberry Pi.
@@ -510,7 +532,8 @@ function buildChatSystemPrompt() {
     "Twitter on this node uses cookie-based auth only. Set PICLAW_TWITTER_AUTH_TOKEN and PICLAW_TWITTER_CT0 (browser cookies). Use /set_key in Telegram or add to /etc/piclaw.env. Do not ask for API Key, API Secret, Access Token, or Access Token Secret.",
     "Integrations are implemented under extensions/ (e.g. Twitter in extensions/twitter_api). You can read or suggest changes to that code via exec or read_file.",
     "",
-    "## Operator map (owner chat only for git commands)",
+    "## Operator map (owner-only git/env commands)",
+    "Owner checks: PICLAW_TELEGRAM_CHAT_ID (comma-separated chat ids) and/or PICLAW_TELEGRAM_OWNER_USER_IDS (comma-separated Telegram user ids). In a group, chat id differs from your user id — set OWNER_USER_IDS to your numeric user id so /updateandrestart and /set_key work.",
     `Clone root for /showupdates and /updateandrestart: ${gitAgentStatus.getGitCloneRoot()} (override PICLAW_GIT_CLONE_ROOT). Upstream ref: ${gitAgentStatus.getUpstreamRef()}.`,
     "Structured agent work (notes, skills, memory files) belongs in the workspaces git repo on the hostname-workspace branch; runtime code is hostname-runtime on the main openclaw repo.",
     "Chat completion token usage is appended as JSON lines (type openai_chat) to identity ledger.jsonl when the API returns usage. Optional PICLAW_OPENAI_BUDGET_UNITS_PER_1K_TOTAL maps total_tokens into the abstract daily budget counter.",
@@ -760,7 +783,20 @@ async function main() {
   }
   identityBridge.freezeAvailability();
 
-  const notifyChatId = (process.env.PICLAW_TELEGRAM_CHAT_ID || "").trim();
+  const ownerChatIds = parseCommaSeparatedEnv(process.env.PICLAW_TELEGRAM_CHAT_ID);
+  const ownerUserIds = parseCommaSeparatedEnv(process.env.PICLAW_TELEGRAM_OWNER_USER_IDS);
+  /** First id for outbound notifications (private chat id = user id). */
+  const notifyChatId = ownerChatIds[0] || ownerUserIds[0] || "";
+
+  function ownerMatches(chatId, fromUserId) {
+    const cid = String(chatId ?? "");
+    if (ownerUserIds.length > 0 && fromUserId != null && fromUserId !== "") {
+      if (ownerUserIds.includes(String(fromUserId))) return true;
+    }
+    if (ownerChatIds.length > 0 && ownerChatIds.includes(cid)) return true;
+    return false;
+  }
+
   const bot = telegram.createBot(buildStatusText, {
     getWhoamiText: () => buildWhoamiText(),
     getReviewStatusText: () => buildReviewStatusText(),
@@ -802,7 +838,7 @@ async function main() {
     getAllowedKeys: () => envAppend.getAllowedKeys(),
     getMissingIntegrations: () => integrations.checkIntegrations().missing || [],
     isIdentityAvailable: () => identityBridge.isAvailable(),
-    isOwnerChat: (chatId) => notifyChatId !== "" && String(chatId) === notifyChatId,
+    isOwnerChat: (chatId, fromUserId) => ownerMatches(chatId, fromUserId),
     getExperimentsText: () => buildExperimentsText(),
     runExperiment: (id) => runExperimentById(id, performActionImpl),
     startCodexLogin: codexAuth.startCodexLogin,
