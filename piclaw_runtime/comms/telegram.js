@@ -360,7 +360,8 @@ function createBot(getStatusText, options = {}) {
   }
 
   if (typeof options.requestUpdate === "function") {
-    bot.onText(/\/update/, async (msg) => {
+    // Anchor: unanchored /\/update/ matches "/updateandrestart" (prefix).
+    bot.onText(/^\/update(?:@\S+)?$/, async (msg) => {
       const chatId = msg.chat.id;
       try {
         const result = await options.requestUpdate();
@@ -424,7 +425,7 @@ function createBot(getStatusText, options = {}) {
   }
 
   if (typeof options.isOwnerChat === "function" && typeof options.runAgentRuntimeUpdate === "function") {
-    bot.onText(/\/updateandrestart/, async (msg) => {
+    bot.onText(/^\/updateandrestart(?:@\S+)?$/, async (msg) => {
       const chatId = msg.chat.id;
       try {
         if (!options.isOwnerChat(chatId)) {

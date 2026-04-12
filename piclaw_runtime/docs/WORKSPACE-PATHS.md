@@ -40,7 +40,9 @@ bash scripts/piclaw/clone-workspaces-under-identity.sh
 | **`/update`** | Runs **`piclaw-update`** (A/B slot installer). Fails with “not found” if you never set up A/B — **expected** on a simple `/opt/piclaw` install. See **`piclaw_runtime/docs/AB-UPDATE.md`**. |
 | **`/updateandrestart`** (owner chat) | **`git pull`** in `PICLAW_GIT_CLONE_ROOT`, **`rsync`** `piclaw_runtime/` → `/opt/piclaw`, **`npm install --omit=dev`**, **`systemctl restart piclaw`**. See **`piclaw_runtime/docs/GITHUB-AGENTS.md`** (sudoers). |
 
-If you saw *“A/B update not set up”*, you used **`/update`**. Use **`/updateandrestart`** for the standard Pi workflow (after rsyncing newer code at least once so the script exists under `/opt/piclaw/scripts/`).
+If you saw *“A/B update not set up”* while typing **`/updateandrestart`**, you were on a build where **`/update`** was matched as a substring (fixed in current `telegram.js`: **`/update`** must be the whole command). Deploy the fix, then use **`/updateandrestart`** again.
+
+If you saw that message while using **`/update`** only, that is expected without **`piclaw-update`** — use **`/updateandrestart`** for the standard Pi workflow (after rsyncing newer code at least once so the script exists under `/opt/piclaw/scripts/`).
 
 ## SSH from your PC
 
