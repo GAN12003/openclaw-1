@@ -412,6 +412,8 @@ sudo systemctl enable piclaw
 sudo systemctl start piclaw
 ```
 
+Path reference for clones vs `/opt/piclaw`: **`piclaw_runtime/docs/WORKSPACE-PATHS.md`**.
+
 **Identity dir (optional, for durable goals/identity)**
 
 ```bash

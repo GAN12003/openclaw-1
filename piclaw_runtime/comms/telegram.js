@@ -28,7 +28,7 @@ function createBot(getStatusText, options = {}) {
     { command: "github", description: "GitHub auth" },
     { command: "twitter", description: "Twitter status" },
     { command: "hw", description: "Hardware (UART, GPIO)" },
-    { command: "update", description: "Apply update" },
+    { command: "update", description: "A/B slot switch (needs piclaw-update)" },
     { command: "showupdates", description: "Commits behind main (owner)" },
     { command: "suggestgit", description: "Git status on clone (owner)" },
     { command: "updateandrestart", description: "Pull rsync npm restart (owner)" },
@@ -368,10 +368,19 @@ function createBot(getStatusText, options = {}) {
           await bot.sendMessage(chatId, "Update requested — switching slot on next restart.");
         } else {
           const stderr = (result.stderr || "").toLowerCase();
-          const friendly = /not found|command not found|enoent/.test(stderr)
-            ? "A/B update not set up. Install piclaw-update and slots (see docs/AB-UPDATE.md)."
+          const abMissing = /not found|command not found|enoent/.test(stderr);
+          const friendly = abMissing
+            ? [
+                "<b>/update</b> runs the <b>A/B</b> helper <code>piclaw-update</code> only.",
+                "It is <b>not</b> installed on this Pi.",
+                "",
+                "For the usual flow (git pull → rsync → npm → restart), use <b>/updateandrestart</b> from the owner chat.",
+                "A/B setup: <code>piclaw_runtime/docs/AB-UPDATE.md</code>.",
+              ].join("\n")
             : `${result.stderr || result.stdout || "unknown"}`.trim().slice(0, 400);
-          await bot.sendMessage(chatId, `Update failed. ${friendly}`);
+          await bot.sendMessage(chatId, abMissing ? `Update failed.\n${friendly}` : `Update failed. ${friendly}`, {
+            parse_mode: abMissing ? "HTML" : undefined,
+          });
         }
       } catch (err) {
         await bot.sendMessage(chatId, `Error: ${err.message}`);
@@ -610,7 +619,7 @@ function createBot(getStatusText, options = {}) {
           "/setup — env keys & missing integrations",
           "/github, /twitter — auth status",
           "/hw, /gpio — hardware",
-          "/update — apply update (A/B)",
+          "/update — A/B slot switch only (needs piclaw-update)",
           "/showupdates, /suggestgit, /updateandrestart, /usage — owner only",
           "/help — full command list",
           "",
@@ -641,7 +650,7 @@ function createBot(getStatusText, options = {}) {
       "/probe_uart — run UART probe",
       "/uart_devices — list UART devices",
       "/gpio — GPIO control (pulse/set)",
-      "/update — apply update (needs A/B setup)",
+      "/update — A/B slot switch only (needs piclaw-update; see docs/AB-UPDATE.md)",
       "/showupdates — commits on upstream not merged into current clone HEAD (owner)",
       "/suggestgit — git status + diff stat in PICLAW_GIT_CLONE_ROOT (owner)",
       "/updateandrestart — pull, rsync piclaw_runtime to /opt/piclaw, npm, restart service (owner)",
