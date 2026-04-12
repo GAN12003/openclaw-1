@@ -4,18 +4,38 @@ const https = require("https");
 
 const MAX_HISTORY = 20; // last 20 messages (10 turns) for context
 
+/** OpenAI-compatible API base (no trailing slash). Piclaw defaults to NVIDIA NIM integrate API (free-tier models). */
+const DEFAULT_OPENAI_BASE_URL = "https://integrate.api.nvidia.com/v1";
+
+/** Default chat model on NVIDIA (override with OPENAI_CHAT_MODEL). */
+const DEFAULT_CHAT_MODEL = "z-ai/glm4.7";
+
 const REQUEST_TIMEOUT_MS = Math.min(
   300_000,
   Math.max(60_000, Number(process.env.OPENAI_REQUEST_TIMEOUT_MS) || 180_000)
 );
 
+function getChatCompletionsUrl() {
+  const base = (
+    process.env.OPENAI_BASE_URL ||
+    process.env.OPENAI_API_BASE ||
+    DEFAULT_OPENAI_BASE_URL
+  )
+    .trim()
+    .replace(/\/$/, "");
+  return new URL(`${base}/chat/completions`);
+}
+
 function requestOnce(body, apiKey) {
   return new Promise((resolve, reject) => {
     const raw = JSON.stringify(body);
+    const url = getChatCompletionsUrl();
+    const port = url.port ? Number(url.port) : 443;
     const req = https.request(
       {
-        hostname: "api.openai.com",
-        path: "/v1/chat/completions",
+        hostname: url.hostname,
+        port,
+        path: url.pathname + url.search,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -78,7 +98,7 @@ function chat(userMessage, systemPrompt, apiKey, history = []) {
   ];
   return request(
     {
-      model: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini",
+      model: process.env.OPENAI_CHAT_MODEL || DEFAULT_CHAT_MODEL,
       max_tokens: 1024,
       messages,
     },
@@ -227,7 +247,7 @@ async function chatWithTools(messages, apiKey, executeTool) {
 
   while (round < maxRounds) {
     const body = {
-      model: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini",
+      model: process.env.OPENAI_CHAT_MODEL || DEFAULT_CHAT_MODEL,
       max_tokens: 1024,
       messages,
       tools,
