@@ -91,8 +91,9 @@ const bodyScan = require("./introspection/body_scan");
 const express = require("./perception/express");
 const envAppend = require("./core/env_append");
 const gitAgentStatus = require("./integrations/git_agent_status");
+const hostHealthWatch = require("./system/host_health_watch");
 
-const runtime_state = { environment: null };
+const runtime_state = { environment: null, hostMetrics: null };
 const pendingEnvKeyByChat = {};
 
 /** Summarize recent openai_chat rows in identity ledger.jsonl (for /status Economy line). */
@@ -154,6 +155,81 @@ function buildUsageReportHtml() {
   ].join("\n");
 }
 
+function buildResourcesReportHtml() {
+  const safeRoot = selfGuard.SAFE_ROOT;
+  const hostLogPath = path.join(safeRoot, "logs", "host-health.ndjson");
+  let identityRoot = "n/a";
+  let ledgerPath = "n/a";
+  try {
+    if (identityBridge.isAvailable()) {
+      identityRoot = identityBridge.getRoot();
+      ledgerPath = path.join(identityRoot, "ledger.jsonl");
+    }
+  } catch (_) {}
+
+  const lines = [
+    "<b>Resources</b>",
+    "",
+    "<b>Log paths</b>",
+    `Runtime (SAFE_ROOT): <code>${safeRoot}</code>`,
+    `Host health NDJSON: <code>${hostLogPath}</code>`,
+    `Identity root: <code>${identityRoot}</code>`,
+    `Token ledger: <code>${ledgerPath}</code>`,
+    "",
+  ];
+
+  const hm = runtime_state.hostMetrics;
+  if (hm && hm.ts) {
+    const cpuStr = hm.cpuLoadPct != null ? `${hm.cpuLoadPct}%` : "n/a";
+    const memStr = hm.memPct != null ? `${hm.memPct}%` : "n/a";
+    lines.push("<b>Last host sample</b>");
+    lines.push(`UTC: ${hm.ts}`);
+    lines.push(`CPU load: ${cpuStr}, system RAM: ${memStr}`);
+    if (hm.processRssMb != null || hm.processPid != null) {
+      const rss = hm.processRssMb != null ? `${hm.processRssMb} MB RSS` : "";
+      const heap = hm.processHeapUsedMb != null ? `, heap ${hm.processHeapUsedMb} MB` : "";
+      const pid = hm.processPid != null ? ` (pid ${hm.processPid})` : "";
+      lines.push(`Piclaw process: ${rss}${heap}${pid}`);
+    }
+    if (hm.connectivityLatencyMs != null) {
+      lines.push(
+        `API path: latency ${hm.connectivityLatencyMs}ms (dns ${hm.dnsMs != null ? hm.dnsMs : "n/a"}ms, tcp ${hm.tcpMs != null ? hm.tcpMs : "n/a"}ms)`
+      );
+    }
+  } else {
+    lines.push("No host sample yet (health watch may still be starting).");
+  }
+
+  lines.push("");
+  lines.push("<b>Chat tokens</b>");
+  lines.push(identityBridge.isAvailable() ? buildChatUsageLedgerSummary() : "Identity not configured — no ledger.");
+  lines.push("");
+  lines.push(
+    "Daily rollups: run on the Pi: <code>node scripts/resource-report.js</code> (from <code>piclaw_runtime</code>)."
+  );
+  lines.push(
+    "Quick parse: <code>node scripts/analyze-logs.js</code> or Telegram <code>/logs_summary</code> (owner)."
+  );
+  return lines.join("\n");
+}
+
+function escapeHtmlLite(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function buildLogsSummaryHtml() {
+  try {
+    const { getLogsSummaryText } = require("./scripts/analyze-logs");
+    const raw = getLogsSummaryText({ maxChars: 3500 });
+    return `<b>Logs summary</b>\n\n<pre>${escapeHtmlLite(raw)}</pre>`;
+  } catch (e) {
+    return `<b>Logs summary</b>\n\n${escapeHtmlLite(e && e.message ? e.message : String(e))}`;
+  }
+}
+
 function log(msg) {
   const ts = new Date().toISOString();
   console.log(`[piclaw] ${ts} ${msg}`);
@@ -184,6 +260,8 @@ async function buildStatusText() {
       ? `${env.wifi.ssid || "wlan"} (${env.wifi.signal || "n/a"})`
       : "not available";
     const connStr = env.connectivity?.online ? "ONLINE" : "ISOLATED";
+    const latMs = env.connectivity && typeof env.connectivity.latency_ms === "number" ? env.connectivity.latency_ms : null;
+    const latSuffix = latMs != null ? ` (${latMs}ms)` : "";
     let powerStr = "Healthy";
     if (env.power?.unknown) {
       powerStr = "unavailable (non-Pi platform)";
@@ -196,8 +274,45 @@ async function buildStatusText() {
       "",
       "<b>Environment</b>",
       `WiFi: ${wifiStr}`,
-      `Connectivity: ${connStr}`,
+      `Connectivity: ${connStr}${latSuffix}`,
       `Power: ${powerStr}`,
+    ];
+  }
+
+  const hm = runtime_state.hostMetrics;
+  let hostBlock = [];
+  if (hm && hm.ts) {
+    const memStr = hm.memPct != null ? `${hm.memPct}%` : "n/a";
+    const cpuStr = hm.cpuLoadPct != null ? `${hm.cpuLoadPct}%` : "n/a";
+    const diskStr =
+      hm.diskUsePct != null && hm.diskFreeMb != null
+        ? `${hm.diskUsePct}% used, ${hm.diskFreeMb} MB free`
+        : "n/a";
+    const netStr = hm.online ? "ONLINE" : "ISOLATED";
+    const hmLat =
+      hm.connectivityLatencyMs != null
+        ? `latency ${hm.connectivityLatencyMs}ms (dns ${hm.dnsMs != null ? hm.dnsMs : "n/a"}ms, tcp ${hm.tcpMs != null ? hm.tcpMs : "n/a"}ms)`
+        : null;
+    let hwLine = "";
+    if (hm.uartBytesTotal != null || hm.gpioRecentEvents != null) {
+      hwLine = `UART bytes (cumulative): ${hm.uartBytesTotal != null ? hm.uartBytesTotal : "n/a"}; GPIO recent events buffer: ${hm.gpioRecentEvents != null ? hm.gpioRecentEvents : "n/a"}`;
+    }
+    let procHostLine = "";
+    if (hm.processRssMb != null || hm.processPid != null) {
+      const rss = hm.processRssMb != null ? `${hm.processRssMb} MB RSS` : "";
+      const heap = hm.processHeapUsedMb != null ? `, heap ${hm.processHeapUsedMb} MB` : "";
+      const pid = hm.processPid != null ? ` (pid ${hm.processPid})` : "";
+      procHostLine = `Piclaw process: ${rss}${heap}${pid}`;
+    }
+    hostBlock = [
+      "",
+      "<b>Host (automated sample)</b>",
+      `Sample (UTC): ${hm.ts}`,
+      `CPU load: ${cpuStr}, system RAM use: ${memStr}`,
+      ...(procHostLine ? [procHostLine] : []),
+      `Disk (${hm.diskMount || "?"}): ${diskStr}`,
+      `Reachability (AI API host): ${netStr}${hmLat ? ` — ${hmLat}` : ""}`,
+      ...(hwLine ? [hwLine] : []),
     ];
   }
 
@@ -308,6 +423,7 @@ async function buildStatusText() {
     `hostname: ${id.hostname} (${id.platform}/${id.arch})`,
     ...agentProfileLines,
     ...envBlock,
+    ...hostBlock,
     ...systemBlock,
     ...processBlock,
     ...versionBlock,
@@ -490,6 +606,25 @@ function buildChatSystemPrompt() {
     "You never roleplay fictional hardware.",
     "You only describe real measurable state from the runtime.",
     "",
+    ...(runtime_state.hostMetrics && runtime_state.hostMetrics.ts
+      ? [
+          "## Host metrics (automated sample)",
+          `Last sample (UTC): ${runtime_state.hostMetrics.ts}. System RAM use: ${
+            runtime_state.hostMetrics.memPct != null ? `${runtime_state.hostMetrics.memPct}%` : "n/a"
+          }; disk: ${
+            runtime_state.hostMetrics.diskUsePct != null && runtime_state.hostMetrics.diskFreeMb != null
+              ? `${runtime_state.hostMetrics.diskUsePct}% used, ${runtime_state.hostMetrics.diskFreeMb} MB free`
+              : "n/a"
+          } (${runtime_state.hostMetrics.diskMount || "mount unknown"}); connectivity: ${
+            runtime_state.hostMetrics.online ? "online" : "offline"
+          }${
+            runtime_state.hostMetrics.connectivityLatencyMs != null
+              ? `; API path latency about ${runtime_state.hostMetrics.connectivityLatencyMs}ms`
+              : ""
+          }.`,
+          "",
+        ]
+      : []),
     "You remain a diagnostic and assistance system — not an autonomous actor.",
     "You do not invent goals or perform hidden actions.",
     "You operate transparently and respond to requests or scheduled processes already defined in code.",
@@ -520,9 +655,11 @@ function buildChatSystemPrompt() {
     "## Tooling (you have these)",
     "- exec: YOU HAVE THIS. Run shell commands on this system. When the user asks to run a command, run something in the terminal, run code, list files, install something, or do anything that needs the shell, CALL the exec tool with that command. You will get stdout/stderr back. Call it; do not refuse.",
     "- read_file: read a file under the runtime or identity directory (path-safe). Use to read extensions code or docs.",
-    "- memory: remember key value — store a fact. recall key — retrieve a fact. Use for long-term user preferences or setup notes.",
+    "- memory: remember key value — store a fact. recall key — retrieve a fact. Optional category/tags on store.",
+    "- memory_search: search memory and learned_tools by text (bounded). Prefer this over assuming full knowledge is in the prompt.",
+    "- memory_recall_semantic: optional meaning-based search (PICLAW_MEMORY_EMBEDDINGS_ENABLE); treat as unverified.",
     "- learn: store a procedure in learned_tools (topic, key, value) so you can recall it later.",
-    "- Telegram: /menu, /status, /whoami, /review_status, /selfcheck, /hw, /probe_uart, /github, /twitter, /update, /showupdates, /suggestgit, /updateandrestart (owner), /usage (owner), /help. UART and GPIO (pins 17,27,22) via /gpio.",
+    "- Telegram: /menu, /status, /whoami, /review_status, /selfcheck, /hw, /probe_uart, /github, /twitter, /update, /showupdates, /suggestgit, /updateandrestart (owner), /usage (owner), /resources (owner), /logs_summary (owner), /help. UART and GPIO (pins 17,27,22) via /gpio.",
     "- Memory: conversation history. You know what was said and what you already ran.",
     `- Integrations (this node): ${missingInt === "none" ? "GitHub, Twitter, SMTP, Moltbook when configured" : "missing: " + missingInt + "."}`,
     "",
@@ -541,6 +678,10 @@ function buildChatSystemPrompt() {
     "",
     "## Safety",
     "You do not create independent goals. You prioritize safety and human oversight; comply with stop/pause; do not persuade anyone to disable safeguards. You do not perform hidden execution or irreversible system modification. You remain observable and interruptible.",
+    "",
+    "## Grounding and memory",
+    "Stored facts from memory_search or memory_recall_semantic are notes — they may be stale or wrong. For live system state (hardware, network, files, processes), use exec or read_file and say what you measured.",
+    "Distinguish a stored user note from a fresh measurement. If unsure, say so and verify with a tool.",
     "",
     "## Behavior",
     "When the user asks to run a command or do something on this system: call exec. When they ask what you can do: say you can run commands (exec), use Telegram commands, and have UART/GPIO. For fetching a URL or web content: use exec with curl or wget. Reply concisely.",
@@ -593,14 +734,36 @@ function buildChatSystemPrompt() {
   }
 
   try {
+    const memMode = (process.env.PICLAW_MEMORY_PROMPT_MODE || "minimal").trim().toLowerCase();
     const learned = identityBridge.loadKnowledge("learned_tools");
     const memoryFacts = identityBridge.loadKnowledge("memory");
-    const learnedStr = typeof learned === "object" && learned !== null && Object.keys(learned).length > 0
-      ? JSON.stringify(learned).slice(0, 900) : "(none)";
-    const memoryStr = typeof memoryFacts === "object" && memoryFacts !== null && Object.keys(memoryFacts).length > 0
-      ? JSON.stringify(memoryFacts).slice(0, 600) : "(none)";
-    lines.push("", "Learned tools / knowledge: " + learnedStr);
-    lines.push("Stored memory (facts): " + memoryStr);
+    const nk =
+      typeof learned === "object" && learned !== null && learned !== undefined ? Object.keys(learned).length : 0;
+    const nm =
+      typeof memoryFacts === "object" && memoryFacts !== null && memoryFacts !== undefined
+        ? Object.keys(memoryFacts).length
+        : 0;
+    if (memMode === "full") {
+      const learnedStr = nk > 0 ? JSON.stringify(learned).slice(0, 900) : "(none)";
+      const memoryStr = nm > 0 ? JSON.stringify(memoryFacts).slice(0, 600) : "(none)";
+      lines.push("", "Learned tools / knowledge: " + learnedStr);
+      lines.push("Stored memory (facts): " + memoryStr);
+    } else {
+      lines.push(
+        "",
+        "## Stored knowledge (summary)",
+        `learned_tools entries: ${nk}; memory entries: ${nm}. Full text is not inlined by default — use memory_search or memory_recall_semantic (if enabled), or read_file on identity/knowledge/*.json.`,
+        "Set PICLAW_MEMORY_PROMPT_MODE=full to restore previous inline JSON dumps (token-heavy)."
+      );
+    }
+  } catch (_) {}
+
+  try {
+    const sessionSummary = require("./memory/session_summary");
+    const snip = sessionSummary.getLatestSummarySnippet(800);
+    if (snip) {
+      lines.push("", "## Prior session summary (may be stale)", snip);
+    }
   } catch (_) {}
 
   try {
@@ -683,12 +846,29 @@ function executeMemoryTool(args) {
   if (!identityBridge.isAvailable()) return "memory: identity not configured.";
   if (action === "store") {
     const value = args.value != null ? String(args.value) : "";
-    identityBridge.updateKnowledge("memory", key, value);
+    const tagsRaw = (args.tags != null ? String(args.tags) : "").trim();
+    const tags = tagsRaw ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    const catRaw = (args.category != null ? String(args.category) : "").trim();
+    const category = catRaw || null;
+    identityBridge.updateKnowledge("memory", key, value, { category, tags });
     return "stored: " + key;
   }
   const data = identityBridge.loadKnowledge("memory");
   const val = data && Object.prototype.hasOwnProperty.call(data, key) ? data[key] : undefined;
   return val !== undefined ? String(val) : "(no value for " + key + ")";
+}
+
+function executeMemorySearchTool(args) {
+  const knowledgeSearch = require("./memory/knowledge_search");
+  const topicsRaw = (args.topics != null ? String(args.topics) : "").trim();
+  const topics = topicsRaw ? topicsRaw.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+  return knowledgeSearch.searchKnowledge({
+    query: (args.query != null ? String(args.query) : "").trim(),
+    topics,
+    category: args.category != null ? String(args.category) : undefined,
+    tag: args.tag != null ? String(args.tag) : undefined,
+    maxResults: args.max_results,
+  });
 }
 
 /** Read file under runtime or identity root (path-safe). */
@@ -783,6 +963,17 @@ async function buildChatReply(chatId, userMessage) {
   async function executeTool(name, args) {
     if (name === "exec") return executeExecTool(args);
     if (name === "memory") return Promise.resolve(executeMemoryTool(args));
+    if (name === "memory_search") return Promise.resolve(executeMemorySearchTool(args));
+    if (name === "memory_recall_semantic") {
+      const vectorStore = require("./memory/vector_store");
+      const topicsRaw = (args.topics != null ? String(args.topics) : "").trim();
+      const topics = topicsRaw ? topicsRaw.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+      return vectorStore.recallSemantic({
+        query: (args.query != null ? String(args.query) : "").trim(),
+        topics,
+        topK: args.top_k,
+      });
+    }
     if (name === "read_file") return Promise.resolve(executeReadFileTool(args));
     if (name === "learn") return Promise.resolve(executeLearnTool(args));
     if (name === "set_self_summary") return Promise.resolve(executeSetSelfSummaryTool(args));
@@ -791,6 +982,22 @@ async function buildChatReply(chatId, userMessage) {
   }
 
   const reply = await openaiChat.chatWithTools(messages, apiKey, executeTool);
+  try {
+    const { logContextStats } = require("./integrations/chat_usage");
+    const histChars = historySlice.reduce((acc, m) => acc + (m.content ? String(m.content).length : 0), 0);
+    logContextStats({
+      system_prompt_chars: systemPrompt.length,
+      history_chars: histChars,
+      history_messages: historySlice.length,
+    });
+  } catch (_) {}
+  try {
+    const sessionSummary = require("./memory/session_summary");
+    sessionSummary.appendSummary({
+      chatId,
+      summary: `user: ${String(userMessage).slice(0, 400)} | assistant: ${String(reply).slice(0, 400)}`,
+    });
+  } catch (_) {}
   history.push({ role: "user", content: userMessage });
   history.push({ role: "assistant", content: reply });
   if (history.length > histLen) history.splice(0, history.length - histLen);
@@ -837,6 +1044,16 @@ async function main() {
   }
   identityBridge.freezeAvailability();
 
+  try {
+    const knowledgeIndex = require("./memory/knowledge_index");
+    ["memory", "learned_tools"].forEach((t) => knowledgeIndex.rebuildTopicIndex(t));
+  } catch (_) {}
+  try {
+    const patternStats = require("./memory/pattern_stats");
+    patternStats.refreshPatternStats();
+    setInterval(() => patternStats.refreshPatternStats(), 86_400_000);
+  } catch (_) {}
+
   const ownerChatIds = parseCommaSeparatedEnv(process.env.PICLAW_TELEGRAM_CHAT_ID);
   const ownerUserIds = parseCommaSeparatedEnv(process.env.PICLAW_TELEGRAM_OWNER_USER_IDS);
   /** First id for outbound notifications (private chat id = user id). */
@@ -858,7 +1075,14 @@ async function main() {
     sendTestMail: () => smtpApi.sendTestMail(),
     getTwitterStatus: () => twitterApiBridge.getTwitterStatus(),
     getSelfInspection: () => selfInspect.getSelfInspectionAsync(),
-    getHardwareState: () => (detectPlatform.isRaspberryPi() ? hardwareState.getHardwareState() : { uart: { active: false }, gpio: { monitored: [], last_events: [] }, summary: "n/a (not Raspberry Pi)" }),
+    getHardwareState: () =>
+      detectPlatform.isRaspberryPi()
+        ? hardwareState.getHardwareState()
+        : {
+            uart: { active: false },
+            gpio: { monitored: [], last_events: [], gpio_log: { enabled: false, path: null } },
+            summary: "n/a (not Raspberry Pi)",
+          },
     gpioControl: {
       getControlConfig: () => gpioControl.getControlConfig(),
       pulsePin: (pin, ms) => gpioControl.pulsePin(pin, ms),
@@ -908,6 +1132,8 @@ async function main() {
     runGitSuggest: () => gitAgentStatus.suggestGit(),
     runAgentRuntimeUpdate: () => gitAgentStatus.runAgentRuntimeUpdate(),
     getUsageReportHtml: () => buildUsageReportHtml(),
+    getResourcesReportHtml: () => buildResourcesReportHtml(),
+    getLogsSummaryHtml: () => buildLogsSummaryHtml(),
   });
   if (bot) {
     log("Telegram bot started (responds to /status)");
@@ -915,6 +1141,10 @@ async function main() {
     log("PICLAW_TELEGRAM_TOKEN not set — Telegram disabled");
   }
   eventNotifier.setNotifyTarget(bot, notifyChatId);
+  hostHealthWatch.startHostHealthWatch({
+    runtimeState: runtime_state,
+    notify: (msg) => eventNotifier.notify(msg),
+  });
   express.configure({
     notify: (msg) => {
       if (bot && notifyChatId) bot.sendMessage(notifyChatId, msg).catch(() => {});
@@ -1024,7 +1254,8 @@ async function main() {
     const net = await connectivity.checkConnectivity();
     runtime_state.environment = { wifi, power, connectivity: net };
     const sig = wifi.signal != null ? wifi.signal : "n/a";
-    log(`env update: online=${net.online} signal=${sig}`);
+    const lat = net.latency_ms != null ? ` latency_ms=${net.latency_ms}` : "";
+    log(`env update: online=${net.online} signal=${sig}${lat}`);
   }
 
   senseEnv();

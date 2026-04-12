@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const uartActivityLog = require("./uart_activity_log");
 
 const SERIAL_PATHS = ["/dev/serial0", "/dev/ttyAMA0"];
 
@@ -24,6 +25,7 @@ function startUARTWatch(opts = {}) {
       stream.on("data", (chunk) => {
         status.last_seen = new Date().toISOString();
         status.bytes += chunk.length;
+        uartActivityLog.maybeAppendUartActivity({ device: p, cumulativeBytes: status.bytes });
         if (onActivity && !activityLogged) {
           activityLogged = true;
           onActivity(p);

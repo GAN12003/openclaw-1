@@ -32,6 +32,7 @@ const {
   defaultExperiments,
 } = require("./defaults");
 const writers = require("./writers");
+const knowledgeFormat = require("./knowledge_format");
 
 function readJsonSafe(filePath, defaultObj, onCorrupt) {
   if (!identityDirExists()) return defaultObj;
@@ -175,7 +176,8 @@ function loadKnowledge(topic) {
   try {
     const raw = fs.readFileSync(p, "utf8");
     const data = JSON.parse(raw);
-    return typeof data === "object" && data !== null ? data : {};
+    if (typeof data !== "object" || data === null) return {};
+    return knowledgeFormat.toFlatMap(data);
   } catch (e) {
     if (e.code === "ENOENT") return {};
     if (e instanceof SyntaxError) {
@@ -186,6 +188,25 @@ function loadKnowledge(topic) {
       return {};
     }
     return {};
+  }
+}
+
+/**
+ * Structured entries for search (v1 or legacy on disk).
+ * @param {string} topic
+ * @returns {Array<{ id: string, key: string, value: string, category: string | null, tags: string[], updated_at: string | null }>}
+ */
+function loadKnowledgeEntries(topic) {
+  if (!identityDirExists()) return [];
+  const p = knowledgePath(topic);
+  try {
+    const raw = fs.readFileSync(p, "utf8");
+    const data = JSON.parse(raw);
+    if (typeof data !== "object" || data === null) return [];
+    return knowledgeFormat.getEntries(data);
+  } catch (e) {
+    if (e.code === "ENOENT") return [];
+    return [];
   }
 }
 
@@ -359,6 +380,7 @@ module.exports = {
   getWritingStyle,
   loadExperiencesTail,
   loadKnowledge,
+  loadKnowledgeEntries,
   isAvailable,
   getLastReview,
   loadUartRegistry,

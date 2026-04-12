@@ -74,6 +74,8 @@ function createBot(getStatusText, options = {}) {
     { command: "suggestgit", description: "Git status on clone (owner)" },
     { command: "updateandrestart", description: "Pull rsync npm restart (owner)" },
     { command: "usage", description: "Chat API usage ledger (owner)" },
+    { command: "resources", description: "Host + token logs summary (owner)" },
+    { command: "logs_summary", description: "Parse logs summary (owner)" },
   ]).catch((err) => console.warn("[piclaw] setMyCommands failed:", err.message));
 
   bot.on("polling_error", (err) => {
@@ -269,8 +271,18 @@ function createBot(getStatusText, options = {}) {
         const uartStr = hw.uart.active
           ? `UART: active, last_seen ${hw.uart.last_seen || "—"}, ${hw.uart.bytes} bytes`
           : "UART: idle";
+        const log = hw.gpio.gpio_log;
+        const logLine =
+          hw.gpio.monitored.length > 0 && log && log.enabled && log.path ? `State log: ${log.path}` : "";
         const gpioStr = hw.gpio.monitored.length > 0
-          ? `GPIO monitored: ${hw.gpio.monitored.join(", ")}\nLast events:\n${(hw.gpio.last_events || []).slice(0, 10).map((e) => `  gpio${e.gpio} ${e.value} @ ${e.at}`).join("\n") || "  (none yet)"}`
+          ? [
+              `GPIO monitored: ${hw.gpio.monitored.join(", ")}`,
+              logLine,
+              "Last events:",
+              (hw.gpio.last_events || []).slice(0, 10).map((e) => `  gpio${e.gpio} ${e.value} (${e.edge || "?"}) @ ${e.at}`).join("\n") || "  (none yet)",
+            ]
+              .filter(Boolean)
+              .join("\n")
           : "GPIO: none";
         const text = ["<b>Hardware</b>", `Summary: ${hw.summary}`, "", uartStr, "", gpioStr].join("\n");
         await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
@@ -530,6 +542,38 @@ function createBot(getStatusText, options = {}) {
     });
   }
 
+  if (typeof options.isOwnerChat === "function" && typeof options.getResourcesReportHtml === "function") {
+    bot.onText(/\/resources/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
+          await bot.sendMessage(chatId, "Only the owner chat can run /resources.");
+          return;
+        }
+        const text = options.getResourcesReportHtml();
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.getLogsSummaryHtml === "function") {
+    bot.onText(/\/logs_summary/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
+          await bot.sendMessage(chatId, "Only the owner chat can run /logs_summary.");
+          return;
+        }
+        const text = options.getLogsSummaryHtml();
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
   if (typeof options.isOwnerChat === "function" && typeof options.setPendingEnvKey === "function" && typeof options.appendEnv === "function") {
     bot.onText(/\/set_key\s+(\S+)/, async (msg, match) => {
       const chatId = msg.chat.id;
@@ -711,7 +755,7 @@ function createBot(getStatusText, options = {}) {
           "/github, /twitter — auth status",
           "/hw, /gpio — hardware",
           "/update — A/B slot switch only (needs piclaw-update)",
-          "/showupdates, /suggestgit, /updateandrestart, /usage — owner only",
+          "/showupdates, /suggestgit, /updateandrestart, /usage, /resources, /logs_summary — owner only",
           "/help — full command list",
           "",
           "Send any message to chat with me.",
@@ -746,6 +790,8 @@ function createBot(getStatusText, options = {}) {
       "/suggestgit — git status + diff stat in PICLAW_GIT_CLONE_ROOT (owner)",
       "/updateandrestart — pull, rsync piclaw_runtime to /opt/piclaw, npm, restart service (owner)",
       "/usage — recent chat completion token rows from identity ledger (owner)",
+      "/resources — host metrics paths, last sample, token summary (owner)",
+      "/logs_summary — bounded parse of host-health + ledger + log hints (owner)",
       "/setup — list missing integrations, set env keys",
       "/experiments — list builder-researcher experiments (queue)",
       "/run_experiment &lt;id&gt; — run one experiment by id",

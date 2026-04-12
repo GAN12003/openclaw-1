@@ -1,6 +1,7 @@
 "use strict";
 
-const { spawn } = require("child_process");
+const { spawn } = require("node:child_process");
+const { getLogSettings, appendGpioStateLog } = require("./gpio_log");
 
 const DEFAULT_PINS = [17, 27, 22];
 const MAX_EVENTS = 50;
@@ -31,11 +32,13 @@ function startGPIOWatch(opts = {}) {
         const parts = line.trim().split(/\s+/);
         if (parts.length >= 2) {
           const offset = parseInt(parts[0], 10);
-          const edge = parts[1].toLowerCase();
-          const value = edge === "rising" ? "HIGH" : "LOW";
-          const ev = { gpio: offset, value, at: new Date().toISOString() };
+          const edgeRaw = parts[1].toLowerCase();
+          const edge = edgeRaw === "rising" || edgeRaw === "falling" ? edgeRaw : "unknown";
+          const value = edgeRaw === "rising" ? "HIGH" : edgeRaw === "falling" ? "LOW" : "UNKNOWN";
+          const ev = { gpio: offset, value, edge, at: new Date().toISOString() };
           last_events.unshift(ev);
           if (last_events.length > MAX_EVENTS) last_events.pop();
+          appendGpioStateLog(ev);
           if (onEvent) onEvent(ev);
         }
       }
@@ -55,9 +58,14 @@ function startGPIOWatch(opts = {}) {
 }
 
 function getGPIOStatus() {
+  const log = getLogSettings();
   return {
     monitored: [...monitored],
     last_events: [...last_events],
+    gpio_log: {
+      enabled: log.enabled,
+      path: log.logPath,
+    },
   };
 }
 

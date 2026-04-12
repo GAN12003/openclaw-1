@@ -31,7 +31,11 @@ async function getStatusJson() {
   const fsView = filesystemView.getFilesystemView();
   const proc = processInfo.getProcessInfo();
   const ver = versionState.getVersionState();
-  let hardware = { summary: "n/a", uart: { active: false }, gpio: { monitored: [], last_events: [] } };
+  let hardware = {
+    summary: "n/a",
+    uart: { active: false },
+    gpio: { monitored: [], last_events: [], gpio_log: { enabled: false, path: null } },
+  };
   if (detectPlatform.isRaspberryPi()) {
     hardware = hardwareState.getHardwareState();
   }

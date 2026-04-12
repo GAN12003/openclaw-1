@@ -4,3 +4,4 @@ node_modules/
 heartbeat.json
 .device_identity.json
 codex_credentials.json
+logs/

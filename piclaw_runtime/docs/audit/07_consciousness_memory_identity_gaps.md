@@ -42,3 +42,11 @@ Short audit of what was in place, what was missing, and what was implemented to 
 - Pi Zero W performance notes in docs.
 
 See **05_next_steps_plan.md** for broader roadmap.
+
+## Structured memory and retrieval (later addition)
+
+- **On-disk format**: `knowledge/memory.json` and `knowledge/learned_tools.json` can be stored as v1 `{ "version": 1, "entries": [ ... ] }` with optional `category` and `tags` per entry; legacy flat `{ "key": "value" }` is still read and merged on write.
+- **Tools**: `memory_search` (keyword/category/tag), optional `memory_recall_semantic` when `PICLAW_MEMORY_EMBEDDINGS_ENABLE=1`; `memory` store accepts optional `category` and `tags`.
+- **Prompt**: Default `PICLAW_MEMORY_PROMPT_MODE=minimal` avoids dumping full JSON into the system prompt; use `full` for legacy behavior. **Grounding** section instructs the model to verify live state with `exec` / `read_file`.
+- **Session summaries**: Optional `PICLAW_SESSION_SUMMARY_ENABLE` appends short lines to `knowledge/session_summaries.jsonl` and injects the latest snippet into the system prompt.
+- **Ledger**: `type: context_stats` lines log approximate system/history character counts. Optional `knowledge/pattern_stats.json` (aggregated chat counts by day) when `PICLAW_PATTERN_STATS_ENABLE=1`.

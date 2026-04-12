@@ -156,10 +156,13 @@ async function request(body, apiKey) {
 }
 
 async function requestAndLogUsage(body, apiKey) {
+  const t0 = Date.now();
   const j = await request(body, apiKey);
+  const duration_ms = Date.now() - t0;
+  const rss_mb = Math.round((process.memoryUsage().rss / (1024 * 1024)) * 10) / 10;
   try {
     const { logChatCompletionUsage } = require("./chat_usage");
-    logChatCompletionUsage(j && j.usage);
+    logChatCompletionUsage(j && j.usage, { duration_ms, rss_mb });
   } catch (_) {}
   return j;
 }
@@ -242,7 +245,8 @@ const MEMORY_TOOL = {
   type: "function",
   function: {
     name: "memory",
-    description: "Store or recall a fact. Use for user preferences, setup notes, or anything to remember across sessions. Stored under identity knowledge topic 'memory'.",
+    description:
+      "Store or recall a fact. Use for user preferences, setup notes, or anything to remember across sessions. Stored under identity knowledge topic 'memory'. Optional category/tags on store for memory_search.",
     parameters: {
       type: "object",
       properties: {
@@ -259,8 +263,80 @@ const MEMORY_TOOL = {
           type: "string",
           description: "Value to store; required when action is store.",
         },
+        category: {
+          type: "string",
+          description: "Optional category label for store (e.g. network, user_pref).",
+        },
+        tags: {
+          type: "string",
+          description: "Optional comma-separated tags for store (e.g. wifi,backup).",
+        },
       },
       required: ["action", "key"],
+    },
+  },
+};
+
+/** Search stored knowledge (memory + learned_tools) by text/category/tag; bounded output. */
+const MEMORY_SEARCH_TOOL = {
+  type: "function",
+  function: {
+    name: "memory_search",
+    description:
+      "Search identity knowledge (memory, learned_tools) by substring and optional filters. Returns labeled snippets with source paths — unverified vs live system state.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Words or phrase to search for in keys, values, tags.",
+        },
+        topics: {
+          type: "string",
+          description: "Comma-separated topics (default memory,learned_tools). Example: memory,learned_tools",
+        },
+        category: {
+          type: "string",
+          description: "Filter by category if entries have one.",
+        },
+        tag: {
+          type: "string",
+          description: "Filter by a single tag.",
+        },
+        max_results: {
+          type: "number",
+          description: "Max entries to return (default 12).",
+        },
+      },
+      required: ["query"],
+    },
+  },
+};
+
+/** Semantic recall over embedded knowledge (optional; requires PICLAW_MEMORY_EMBEDDINGS_ENABLE). */
+const MEMORY_RECALL_SEMANTIC_TOOL = {
+  type: "function",
+  function: {
+    name: "memory_recall_semantic",
+    description:
+      "Find top similar stored knowledge by meaning (embeddings). Unverified — verify critical facts with exec/read_file. Disabled unless PICLAW_MEMORY_EMBEDDINGS_ENABLE=1.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Natural language query.",
+        },
+        topics: {
+          type: "string",
+          description: "Comma-separated topics (default memory,learned_tools).",
+        },
+        top_k: {
+          type: "number",
+          description: "Number of hits (default 5).",
+        },
+      },
+      required: ["query"],
     },
   },
 };
@@ -353,7 +429,16 @@ const SET_WRITING_STYLE_TOOL = {
  * @returns {Promise<string>} Final assistant content.
  */
 async function chatWithTools(messages, apiKey, executeTool) {
-  const tools = [EXEC_TOOL, MEMORY_TOOL, READ_FILE_TOOL, LEARN_TOOL, SET_SELF_SUMMARY_TOOL, SET_WRITING_STYLE_TOOL];
+  const tools = [
+    EXEC_TOOL,
+    MEMORY_TOOL,
+    MEMORY_SEARCH_TOOL,
+    MEMORY_RECALL_SEMANTIC_TOOL,
+    READ_FILE_TOOL,
+    LEARN_TOOL,
+    SET_SELF_SUMMARY_TOOL,
+    SET_WRITING_STYLE_TOOL,
+  ];
   const parsed = parseInt(process.env.PICLAW_CHAT_MAX_TOOL_ROUNDS || "16", 10);
   const maxRounds = Number.isFinite(parsed) ? Math.min(32, Math.max(4, parsed)) : 16;
   let round = 0;
@@ -420,4 +505,15 @@ async function chatWithTools(messages, apiKey, executeTool) {
   );
 }
 
-module.exports = { chat, chatWithTools, EXEC_TOOL, MEMORY_TOOL, READ_FILE_TOOL, LEARN_TOOL, SET_SELF_SUMMARY_TOOL, SET_WRITING_STYLE_TOOL };
+module.exports = {
+  chat,
+  chatWithTools,
+  EXEC_TOOL,
+  MEMORY_TOOL,
+  MEMORY_SEARCH_TOOL,
+  MEMORY_RECALL_SEMANTIC_TOOL,
+  READ_FILE_TOOL,
+  LEARN_TOOL,
+  SET_SELF_SUMMARY_TOOL,
+  SET_WRITING_STYLE_TOOL,
+};

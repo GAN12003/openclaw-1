@@ -25,6 +25,10 @@ function loadKnowledge(topic) {
   return readers.loadKnowledge(topic);
 }
 
+function loadKnowledgeEntries(topic) {
+  return readers.loadKnowledgeEntries(topic);
+}
+
 function validateIdentity() {
   return validate.validateIdentity();
 }
@@ -79,6 +83,7 @@ module.exports = {
   loadRelationships,
   appendExperience,
   loadKnowledge,
+  loadKnowledgeEntries,
   validateIdentity,
   warnIdentityPermissions,
   checkStrictIdentityPermissions,

@@ -20,6 +20,7 @@ function getHardwareState() {
     gpio: {
       monitored: gpio.monitored,
       last_events: gpio.last_events,
+      gpio_log: gpio.gpio_log,
     },
     summary: uartActive || gpioActive ? "active" : gpioActive ? "monitoring" : "idle",
   };
