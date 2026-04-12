@@ -38,6 +38,9 @@ apps/macos/.swiftpm/
 apps/shared/MoltbotKit/.swiftpm/
 apps/shared/OpenClawKit/.swiftpm/
 Core/
+# Windows FS is case-insensitive: un-ignore Piclaw runtime core/ (distinct from macOS Core/)
+!piclaw_runtime/core/
+!piclaw_runtime/core/**/*.js
 apps/ios/*.xcodeproj/
 apps/ios/*.xcworkspace/
 apps/ios/.swiftpm/
