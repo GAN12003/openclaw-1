@@ -20,8 +20,8 @@ Each Pi uses **two SSH deploy key pairs** (ed25519): one for **openclaw-1** (run
 
 | Purpose | Repo | Branch names (match hostname short name) |
 |--------|------|---------------------------------------------|
-| Runtime (piclaw code; merge `main` when operators ship fixes) | `GAN12003/openclaw-1` | `deagent02-runtime`, `deagent03-runtime` |
-| Agent workspace (notes, logs, memory; safe to reset) | `GAN12003/workspaces` | `deagent02-workspace`, `deagent03-workspace` |
+| Runtime (piclaw code; merge `main` when operators ship fixes) | `GAN12003/openclaw-1` | `deagent01-runtime`, `deagent02-runtime`, `deagent03-runtime` |
+| Agent workspace (notes, logs, memory; safe to reset) | `GAN12003/workspaces` | `deagent01-workspace`, `deagent02-workspace`, `deagent03-workspace` |
 
 **Runtime repo deploy keys:** must have **Allow write access** if the Pi should **`git push`** its runtime branch. If keys are read-only, `git pull` still works; push will fail with `marked as read only` — edit each deploy key on `openclaw-1` and enable write.
 
@@ -51,6 +51,7 @@ For **each** public key below: repo → **Settings** → **Deploy keys** → **A
 
 | Agent | Public key (single line) |
 |-------|---------------------------|
+| deAgent01 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPNgl8iVViq1bUJgeu2XwV0fIxhdQPJaK1e7qPLQGaMf deploy-deAgent01-openclaw-1` |
 | deAgent02 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICRNBUZ4cd8MsVKr4uNG/7+EXqGsdrXG1cRH1sTDqUey deploy-deAgent02-openclaw-1` |
 | deAgent03 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJYNVREOaxLEM3/CK9FTG+zRkFoWOeOML6pQ2mim5rHl deploy-deAgent03-openclaw-1` |
 
@@ -58,6 +59,7 @@ For **each** public key below: repo → **Settings** → **Deploy keys** → **A
 
 | Agent | Public key (single line) |
 |-------|---------------------------|
+| deAgent01 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMoZb3glBAt2HqXBM2iPwbUOtCI+mHZyGMZxaXuUJiZt deploy-deAgent01-workspaces` |
 | deAgent02 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDubBWivpD0tavuzZybZPoJ0F5J2nkKm0IAwXWap4B52 deploy-deAgent02-workspaces` |
 | deAgent03 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKfkbJhIPHcLnobz4cbzVK/xYbikqcS/h38XU9DFHpRe deploy-deAgent03-workspaces` |
 
