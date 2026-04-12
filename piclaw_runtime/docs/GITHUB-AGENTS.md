@@ -16,12 +16,16 @@
 
 Each Pi uses **two SSH deploy key pairs** (ed25519): one for **openclaw-1** (runtime), one for **workspaces**. Private keys stay on the Pi; **public** keys go to GitHub.
 
-## Branch model
+## Branch model (created on GitHub)
 
-| Purpose | Repo | Suggested branch names |
-|--------|------|-------------------------|
-| Runtime (piclaw code, pull fixes from `main`) | `GAN12003/openclaw-1` | `deagent02-runtime`, `deagent03-runtime` (one branch per agent; merge/rebase from `main` as you ship fixes) |
-| Agent workspace (tools, notes, logs, memory) | `GAN12003/workspaces` | `deagent02-workspace`, `deagent03-workspace` (or match hostname) |
+| Purpose | Repo | Branch names (match hostname short name) |
+|--------|------|---------------------------------------------|
+| Runtime (piclaw code; merge `main` when operators ship fixes) | `GAN12003/openclaw-1` | `deagent02-runtime`, `deagent03-runtime` |
+| Agent workspace (notes, logs, memory; safe to reset) | `GAN12003/workspaces` | `deagent02-workspace`, `deagent03-workspace` |
+
+**Runtime repo deploy keys:** must have **Allow write access** if the Pi should **`git push`** its runtime branch. If keys are read-only, `git pull` still works; push will fail with `marked as read only` — edit each deploy key on `openclaw-1` and enable write.
+
+**Workspaces:** empty repo was bootstrapped with `scripts/piclaw/init-workspaces-main.sh` (initial `main`). Agent briefing for operators and LLM: `templates/agent-workspace/GIT.md` (also on each `*-workspace` branch).
 
 **Flow:** You fix on `main` (runtime) and push; each Pi **`git pull`** on its runtime branch (or merge `main` into it), then sync to `/opt/piclaw` and restart `piclaw`. Workspaces branch is for agent-owned files; reset or force-push that branch anytime without touching `main`.
 

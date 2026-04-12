@@ -1,5 +1,7 @@
 # Agent workspace
 
+Read **`GIT.md`** for branch names (`<hostname>-runtime` vs `<hostname>-workspace`), SSH vs PAT, and sync commands.
+
 Short map for the agent (keep files small; prefer append-only logs).
 
 | Path | Purpose |

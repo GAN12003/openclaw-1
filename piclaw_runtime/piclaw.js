@@ -388,7 +388,7 @@ function buildChatSystemPrompt() {
     `- Integrations (this node): ${missingInt === "none" ? "GitHub, Twitter, SMTP, Moltbook when configured" : "missing: " + missingInt + "."}`,
     "",
     "## GitHub / Twitter / setup (for THIS node)",
-    "Setting up GitHub for this node means: add PICLAW_GITHUB_PAT to /etc/piclaw.env (GitHub → Settings → Developer settings → Personal access token). Then /github in Telegram works. Do not give generic create-a-repo steps unless the user asks for that.",
+    "Git over SSH (deploy keys on this device) is separate from the GitHub HTTP API. If /status shows GitHub MISSING but operators set up SSH remotes and branches, that refers to PICLAW_GITHUB_PAT for API/Issues — not SSH. For API access add PICLAW_GITHUB_PAT to /opt/piclaw/.env or /etc/piclaw.env; then /github in Telegram can show auth OK. See templates/agent-workspace/GIT.md in the repo for branch names (<hostname>-runtime, <hostname>-workspace).",
     "Twitter on this node uses cookie-based auth only. Set PICLAW_TWITTER_AUTH_TOKEN and PICLAW_TWITTER_CT0 (browser cookies). Use /set_key in Telegram or add to /etc/piclaw.env. Do not ask for API Key, API Secret, Access Token, or Access Token Secret.",
     "Integrations are implemented under extensions/ (e.g. Twitter in extensions/twitter_api). You can read or suggest changes to that code via exec or read_file.",
     "",
