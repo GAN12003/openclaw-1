@@ -2,6 +2,23 @@
 
 const TelegramBot = require("node-telegram-bot-api");
 
+/** Hints when /status reports missing integrations (exact env key names for /set_key). */
+function buildIntegrationSetupHints(missing) {
+  const m = new Set((missing || []).map((x) => String(x).toLowerCase()));
+  const lines = [];
+  if (m.has("moltbook")) {
+    lines.push(
+      "• <b>Moltbook:</b> <code>/set_key PICLAW_MOLTBOOK_TOKEN</code> — send the token in your next message. (There is no <code>MOLTBOOK_API</code> key; Piclaw only reads <code>PICLAW_MOLTBOOK_TOKEN</code>.)"
+    );
+  }
+  if (m.has("smtp")) {
+    lines.push(
+      "• <b>SMTP:</b> set <code>PICLAW_SMTP_HOST</code>, <code>PICLAW_SMTP_USER</code>, <code>PICLAW_SMTP_PASS</code>, and optionally <code>PICLAW_SMTP_TEST_TO</code> / <code>PICLAW_SMTP_PORT</code> — one <code>/set_key</code> per line."
+    );
+  }
+  return lines.length ? lines.join("\n") + "\n\n" : "";
+}
+
 /**
  * Telegram bot interface for Piclaw.
  * Standalone — no OpenClaw dependency.
@@ -499,7 +516,16 @@ function createBot(getStatusText, options = {}) {
           return;
         }
         if (typeof options.isAllowedKey === "function" && !options.isAllowedKey(key)) {
-          await bot.sendMessage(chatId, "Key not allowed. Use /setup to see allowed keys.");
+          await bot.sendMessage(
+            chatId,
+            [
+              "Key not allowed. Names must be uppercase <code>PICLAW_*</code> or <code>OPENAI_*</code> (see <code>/setup</code>).",
+              "",
+              "Moltbook token: <code>/set_key PICLAW_MOLTBOOK_TOKEN</code>",
+              "GitHub PAT: <code>/set_key PICLAW_GITHUB_PAT</code>",
+            ].join("\n"),
+            { parse_mode: "HTML" }
+          );
           return;
         }
         options.setPendingEnvKey(chatId, key);
@@ -516,15 +542,20 @@ function createBot(getStatusText, options = {}) {
           const missing = options.getMissingIntegrations();
           if (missing && missing.length > 0) {
             text += "Missing: " + missing.join(", ") + "\n\n";
+            text += buildIntegrationSetupHints(missing);
           }
         }
         if (typeof options.isIdentityAvailable === "function" && !options.isIdentityAvailable()) {
           text += "Identity not configured. Create /opt/piclaw_identity (see DEPLOY.md) or run on the Pi: <code>node scripts/bootstrap-identity.js</code>\n\n";
         }
+        text +=
+          "<b>Piclaw chat tool limit:</b> <code>PICLAW_CHAT_MAX_TOOL_ROUNDS</code> (default 16, max 32) = max back-and-forth steps when you send a normal message (model may call <code>exec</code>, <code>read_file</code>, etc. each round). Raise it if you see “agent loop limit reached”.\n\n";
         text += "To set a key: /set_key KEY_NAME then send the value in your next message (I'll delete it).\n\n";
         if (typeof options.getAllowedKeys === "function") {
           const keys = options.getAllowedKeys();
-          if (keys && keys.length) text += "Allowed keys: " + keys.slice(0, 15).join(", ") + (keys.length > 15 ? "…" : "");
+          if (keys && keys.length) {
+            text += "Allowed keys (same list as <code>piclaw_runtime/.env.example</code>):\n<pre>" + keys.join("\n") + "</pre>";
+          }
         }
         await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
       } catch (err) {
@@ -626,12 +657,16 @@ function createBot(getStatusText, options = {}) {
         let text = "<b>Setup</b>\n\n";
         if (typeof options.getMissingIntegrations === "function") {
           const missing = options.getMissingIntegrations();
-          if (missing && missing.length > 0) text += "Missing: " + missing.join(", ") + "\n\n";
+          if (missing && missing.length > 0) {
+            text += "Missing: " + missing.join(", ") + "\n\n";
+            text += buildIntegrationSetupHints(missing);
+          }
         }
         if (typeof options.isIdentityAvailable === "function" && !options.isIdentityAvailable()) {
           text += "Identity: not configured. Run on the Pi: <code>node scripts/bootstrap-identity.js</code>\n\n";
         }
-        text += "Use /set_key KEY_NAME then send the value in your next message. /help for full list.";
+        text +=
+          "<code>PICLAW_CHAT_MAX_TOOL_ROUNDS</code> = max tool rounds per chat message (default 16).\n\nUse <code>/set_key KEY</code> then send the value. Full key list: send <code>/setup</code> as a message (not this button).";
         await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
       } else if (action === "help") {
         const helpLines = [
