@@ -37,6 +37,41 @@ sudo systemctl restart piclaw
 
 ---
 
+## Run Piclaw on Windows (local dev)
+
+Use this to run **Piclaw on your PC** with Telegram + NVIDIA (same env as the Pis) and **identity on your Desktop**, without copying the runtime to `/opt` or using systemd.
+
+1. **Node:** Install Node 18+ ([nodejs.org](https://nodejs.org)). From a terminal:
+
+   ```powershell
+   cd path\to\openclaw-piclaw\piclaw_runtime
+   npm install
+   ```
+
+2. **Identity folder:** Pick a directory for durable state (e.g. `C:\Users\YourName\Desktop\piclaw-dev-identity`). Bootstrap once (creates `self.json`, `goals`, `knowledge`, etc.):
+
+   ```powershell
+   $env:PICLAW_IDENTITY_PATH = "C:\Users\YourName\Desktop\piclaw-dev-identity"
+   node scripts/bootstrap-identity.js
+   ```
+
+3. **Env:** Copy `.env.example` to `.env` in `piclaw_runtime` (`.env` is gitignored). Set at least:
+
+   - `PICLAW_TELEGRAM_TOKEN`, `PICLAW_TELEGRAM_CHAT_ID` (your numeric chat id for DMs)
+   - `OPENAI_API_KEY` (NVIDIA `nvapi-…`), `OPENAI_BASE_URL` if not default
+   - `PICLAW_IDENTITY_PATH` — same path as step 2
+   - Optional: `PICLAW_GIT_CLONE_ROOT` — root of this git clone, for `/showupdates` / `/suggestgit`
+
+   Optional tuning for local dev (fewer background ticks, leaner chat): see comments under “Local Windows dev” in `.env.example` (`PICLAW_PRESENCE_INTERVAL_MIN`, `PICLAW_AGENCY_INTERVAL_MIN`, token caps).
+
+4. **Run:** `node piclaw.js` (or `npm start`). Watch the console — there is no `journalctl` on Windows. Stop with Ctrl+C.
+
+**Not available on Windows:** `/updateandrestart` and `piclaw.service` (bash + sudo + rsync). Use git pull + manual copy if needed, or WSL. **GPIO / UART / `/probe_uart`** are Pi-only (`detect_platform` skips hardware on non-Linux-Pi). You may see **“identity dir permissions are too open”** on Windows (Desktop ACLs differ from Unix `0700`); Piclaw still runs unless you set **`PICLAW_IDENTITY_STRICT_PERMS=1`** (then fix ownership/mode per `identity_bridge/validate.js`).
+
+Path reference: **`piclaw_runtime/docs/WORKSPACE-PATHS.md`**.
+
+---
+
 ## On your dev machine (Windows / WSL)
 
 ```bash
@@ -448,6 +483,90 @@ Test in Telegram: send **/status** and a plain message (e.g. **Hey**) to the bot
 2. Set per-agent env: `PICLAW_GITHUB_PAT`, optional `PICLAW_GITHUB_USERNAME`, optional `PICLAW_GITHUB_ORG`, `PICLAW_GIT_CLONE_ROOT` if the clone is not `~/src/openclaw-1`, and `PICLAW_TELEGRAM_CHAT_ID` for owner-only commands.
 3. Land fixes on `main`, then on each Pi merge or fast-forward the agent runtime branch, **or** use owner Telegram **`/updateandrestart`** once `sudoers` allows the update script (see `piclaw_runtime/docs/GITHUB-AGENTS.md`).
 4. Verify: **`/github`**, **`/status`** (Integrations + Economy), **`/showupdates`**, **`/suggestgit`**, then one controlled **`/updateandrestart`** if applicable.
+
+---
+
+## Observability and maintenance (optional)
+
+**Host metrics** are written to `/opt/piclaw/logs/host-health.ndjson` by the running service. **Connectivity:** the 30s environment probe uses **DNS only** (fast). The host-health interval uses **DNS plus TCP** to port 443 on the AI API host for latency and stricter reachability (see `sensors/connectivity.js`).
+
+**CLI (on the Pi, from `/opt/piclaw` or your clone):**
+
+```bash
+node scripts/analyze-logs.js
+node scripts/resource-report.js
+```
+
+**Telegram (owner):** `/resources`, `/logs_summary`.
+
+**Latency alert (optional):** set `PICLAW_HEALTH_CONNECTIVITY_LATENCY_MS` in env (milliseconds); when the rolling host-health sample exceeds it, Piclaw can notify (with the usual health alert cooldown).
+
+**UART activity NDJSON (optional):** set `PICLAW_UART_ACTIVITY_LOG_ENABLE=1` to append rate-limited lines under `logs/uart-activity.ndjson` (see `hardware/uart_activity_log.js`).
+
+**Memory / context (optional):** `PICLAW_MEMORY_PROMPT_MODE=minimal` (default) or `full` to inline JSON dumps; `PICLAW_SESSION_SUMMARY_ENABLE=1` for rolling session lines under identity `knowledge/session_summaries.jsonl`; `PICLAW_MEMORY_EMBEDDINGS_ENABLE=1` plus `PICLAW_EMBEDDING_MODEL` for semantic recall (uses `OPENAI_BASE_URL` / `OPENAI_API_KEY`); `PICLAW_PATTERN_STATS_ENABLE=1` for `knowledge/pattern_stats.json` from ledger sampling.
+
+### systemd timer examples (backup + log prune)
+
+Install scripts from the repo onto the Pi (same paths as `/opt/piclaw/scripts/`). Ensure backup destination exists and is writable (e.g. `sudo mkdir -p /var/backups/piclaw`).
+
+**`/etc/systemd/system/piclaw-backup.service`**
+
+```ini
+[Unit]
+Description=Piclaw tarball backup
+
+[Service]
+Type=oneshot
+Environment=PICLAW_RUNTIME_DIR=/opt/piclaw
+Environment=PICLAW_IDENTITY_DIR=/opt/piclaw_identity
+Environment=PICLAW_BACKUP_DIR=/var/backups/piclaw
+ExecStart=/bin/bash /opt/piclaw/scripts/backup-piclaw.sh
+```
+
+**`/etc/systemd/system/piclaw-backup.timer`**
+
+```ini
+[Unit]
+Description=Weekly Piclaw backup
+
+[Timer]
+OnCalendar=Sun *-*-* 03:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable: `sudo systemctl enable --now piclaw-backup.timer`
+
+**`/etc/systemd/system/piclaw-prune-logs.service`**
+
+```ini
+[Unit]
+Description=Piclaw log prune
+
+[Service]
+Type=oneshot
+Environment=PICLAW_RUNTIME_DIR=/opt/piclaw
+Environment=PICLAW_LOG_RETENTION_DAYS=14
+ExecStart=/bin/bash /opt/piclaw/scripts/prune-piclaw-logs.sh
+```
+
+**`/etc/systemd/system/piclaw-prune-logs.timer`**
+
+```ini
+[Unit]
+Description=Weekly Piclaw log prune
+
+[Timer]
+OnCalendar=Mon *-*-* 04:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable: `sudo systemctl enable --now piclaw-prune-logs.timer`
 
 ---
 

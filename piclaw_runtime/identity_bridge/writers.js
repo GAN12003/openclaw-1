@@ -38,6 +38,17 @@ const {
 
 const EXPERIENCES_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
+/** fsync can throw EPERM on Windows (Desktop, OneDrive, etc.); durability still OK without it. */
+function safeFsyncSync(fd) {
+  try {
+    fs.fsyncSync(fd);
+  } catch (e) {
+    const c = e && e.code;
+    if (c === "EPERM" || c === "EINVAL" || c === "ENOTSUP") return;
+    throw e;
+  }
+}
+
 /**
  * Atomic write: write to temp file, fsync, rename. Must be called inside withLock.
  */
@@ -48,7 +59,7 @@ function atomicWrite(filePath, content) {
   const fd = fs.openSync(tmpPath, "w");
   try {
     fs.writeFileSync(fd, content, "utf8");
-    fs.fsyncSync(fd);
+    safeFsyncSync(fd);
   } finally {
     fs.closeSync(fd);
   }
@@ -68,7 +79,7 @@ function recoverCorrupt(absolutePath, defaultContent, appendExperienceRaw) {
   const tmpPath = path.join(dir, `.${base}.tmp.${ts}`);
   fs.writeFileSync(tmpPath, defaultContent, "utf8");
   const fd = fs.openSync(tmpPath, "r");
-  fs.fsyncSync(fd);
+  safeFsyncSync(fd);
   fs.closeSync(fd);
   fs.renameSync(tmpPath, absolutePath);
   if (typeof appendExperienceRaw === "function") {
@@ -102,7 +113,7 @@ function appendExperienceRaw(line) {
       const content = (line.endsWith("\n") ? line : line + "\n");
       fs.writeFileSync(expPath, content, "utf8");
       const fd = fs.openSync(expPath, "r");
-      fs.fsyncSync(fd);
+      safeFsyncSync(fd);
       fs.closeSync(fd);
       return;
     }
@@ -115,7 +126,7 @@ function appendExperienceRaw(line) {
   const content = (line.endsWith("\n") ? line : line + "\n");
   fs.appendFileSync(expPath, content, "utf8");
   const fd = fs.openSync(expPath, "r");
-  fs.fsyncSync(fd);
+  safeFsyncSync(fd);
   fs.closeSync(fd);
 }
 
@@ -198,7 +209,7 @@ function appendGoalHistory(line) {
         const content = (line.endsWith("\n") ? line : line + "\n");
         fs.writeFileSync(p, content, "utf8");
         const fd = fs.openSync(p, "r");
-        fs.fsyncSync(fd);
+        safeFsyncSync(fd);
         fs.closeSync(fd);
         return;
       }
@@ -211,7 +222,7 @@ function appendGoalHistory(line) {
     const content = (line.endsWith("\n") ? line : line + "\n");
     fs.appendFileSync(p, content, "utf8");
     const fd = fs.openSync(p, "r");
-    fs.fsyncSync(fd);
+    safeFsyncSync(fd);
     fs.closeSync(fd);
   });
 }
@@ -227,10 +238,16 @@ function writeLastReview(obj) {
   });
 }
 
+const knowledgeFormat = require("./knowledge_format");
+
 /**
- * Read-modify-write knowledge file (add or update key). Uses lock + atomic write.
+ * Read-modify-write knowledge file (add or update key). Persists v1 `{ version, entries }` on disk.
+ * @param {string} topic
+ * @param {string} key
+ * @param {string} value
+ * @param {{ category?: string | null, tags?: string[] }} [meta]
  */
-function updateKnowledge(topic, key, value) {
+function updateKnowledge(topic, key, value, meta) {
   if (!identityDirExists()) return null;
   return withLock(() => {
     const p = knowledgePath(topic);
@@ -243,8 +260,20 @@ function updateKnowledge(topic, key, value) {
       const raw = fs.readFileSync(p, "utf8");
       data = JSON.parse(raw);
     } catch (_) {}
-    data[key] = value;
-    atomicWrite(p, JSON.stringify(data, null, 2));
+    const next = knowledgeFormat.upsertKey(data, key, value, meta || {});
+    atomicWrite(p, JSON.stringify(next, null, 2));
+    try {
+      const idx = require("../memory/knowledge_index");
+      if (idx && typeof idx.rebuildTopicIndex === "function") {
+        idx.rebuildTopicIndex(topic);
+      }
+    } catch (_) {}
+    try {
+      const vs = require("../memory/vector_store");
+      if (vs && typeof vs.onKnowledgeUpsert === "function") {
+        Promise.resolve(vs.onKnowledgeUpsert(topic, key, String(value))).catch(() => {});
+      }
+    } catch (_) {}
     return true;
   });
 }
@@ -362,7 +391,7 @@ function appendLedgerLine(entry) {
   return withLock(() => {
     fs.appendFileSync(ledgerPath(), content, "utf8");
     const fd = fs.openSync(ledgerPath(), "r");
-    fs.fsyncSync(fd);
+    safeFsyncSync(fd);
     fs.closeSync(fd);
     return true;
   });
