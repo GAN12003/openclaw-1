@@ -112,6 +112,12 @@ Piclaw does **not** use Twitter API keys. It uses **browser cookies** only: `PIC
 
 After editing env: `sudo systemctl restart piclaw`. Use `/twitter` on Telegram to verify read-only status for that node.
 
+### 4d. Agent profile (`/opt/piclaw_identity/self.json`)
+
+Set `name`, `agent_id`, `contact_email` (convention `deAgentNN@yopmail.com`), optional `profile_image` (e.g. `setup_piclaw/piclaw_default.jpg` under `/opt/piclaw`), optional `credential_hint` for operator inbox hints. **Do not** put Twitter cookies in `self.json` — use `.env` (`PICLAW_TWITTER_*`). `/status` shows **runtime** `device_id` from `state.json`; `/whoami` shows both runtime and identity `device_id` unless you align them manually.
+
+**Where things live:** identity dir = mission, values, goals, experiences, knowledge. **Workspaces** git repo (`<hostname>-workspace`) = structured notes, logs, `memory/`, `skills/` — see `templates/agent-workspace/GIT.md` and `IDENTITY.template.md`.
+
 ### 5. Environment (no .env in repo)
 
 ```bash

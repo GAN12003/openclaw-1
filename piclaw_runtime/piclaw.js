@@ -194,6 +194,18 @@ async function buildStatusText() {
     ];
   }
 
+  let agentProfileLines = [];
+  if (identityBridge.isAvailable()) {
+    try {
+      const self = identityBridge.loadSelf();
+      const nm = (self.name || "").trim() || (self.agent_id || "").trim();
+      if (nm) agentProfileLines.push(`agent: ${nm}`);
+      if ((self.agent_id || "").trim() && self.agent_id !== self.name) agentProfileLines.push(`agent_id: ${self.agent_id.trim()}`);
+      if ((self.contact_email || "").trim()) agentProfileLines.push(`contact: ${self.contact_email.trim()}`);
+      if ((self.profile_image || "").trim()) agentProfileLines.push(`profile_image: ${self.profile_image.trim()}`);
+    } catch (_) {}
+  }
+
   return [
     "<b>Piclaw status</b>",
     "",
@@ -201,6 +213,7 @@ async function buildStatusText() {
     `device_id: ${id.device_id}`,
     `first_boot: ${id.first_boot}`,
     `hostname: ${id.hostname} (${id.platform}/${id.arch})`,
+    ...agentProfileLines,
     ...envBlock,
     ...systemBlock,
     ...processBlock,
@@ -235,12 +248,24 @@ function buildWhoamiText() {
   const st = (goals.short_term || []).length;
   const goalSummary = `long: ${lt}, mid: ${mt}, short: ${st}`;
   const missionLine = self.mission ? `mission: ${self.mission}` : "mission: —";
-  return [
+  const lines = [
     "<b>Whoami</b>",
-    `device_id: ${self.device_id || fallback.device_id || "n/a"}`,
+    `hostname: ${fallback.hostname || "n/a"} (${fallback.platform}/${fallback.arch})`,
+    `runtime device_id (state.json): ${fallback.device_id || "n/a"}`,
+    `identity device_id (self.json): ${self.device_id || "n/a"}`,
+    `name: ${(self.name || "").trim() || "—"}`,
+  ];
+  if ((self.agent_id || "").trim()) lines.push(`agent_id: ${self.agent_id.trim()}`);
+  if ((self.contact_email || "").trim()) lines.push(`contact_email: ${self.contact_email.trim()}`);
+  if ((self.profile_image || "").trim()) lines.push(`profile_image: ${self.profile_image.trim()} (under runtime root)`);
+  if ((self.credential_hint || "").trim()) lines.push(`operator_hint: ${self.credential_hint.trim()}`);
+  lines.push(
     missionLine,
     `goals: ${goalSummary}`,
-  ].join("\n");
+    "",
+    `Workspace: workspaces repo, branch like ${String(fallback.hostname || "hostname").toLowerCase()}-workspace — notes, logs, memory, skills (see GIT.md in repo).`
+  );
+  return lines.join("\n");
 }
 
 function buildUartDevicesText() {
@@ -378,6 +403,27 @@ function buildChatSystemPrompt() {
     "",
     `Device: ${id.device_id || "unknown"}, hostname: ${id.hostname}.`,
     "",
+    ...(identityBridge.isAvailable()
+      ? (() => {
+          try {
+            const s = identityBridge.loadSelf();
+            const bits = [];
+            if ((s.agent_id || s.name || "").trim()) bits.push(`Agent name/id: ${(s.agent_id || s.name || "").trim()}.`);
+            if ((s.contact_email || "").trim()) bits.push(`Contact email: ${s.contact_email.trim()}.`);
+            if ((s.profile_image || "").trim()) bits.push(`Default profile image (runtime path): ${s.profile_image.trim()}.`);
+            if ((s.credential_hint || "").trim()) bits.push(`Operator hint (e.g. inbox check id): present.`);
+            if (bits.length === 0) return [];
+            return [
+              "## Agent profile (identity layer)",
+              ...bits,
+              "Long-lived soul (mission, values, goals, experiences) lives under the identity directory (e.g. /opt/piclaw_identity). Structured notes, logs, memory, and skills belong in the **workspaces** git repo on a branch named like your hostname plus -workspace — not only in Telegram chat.",
+              "",
+            ];
+          } catch (_) {
+            return [];
+          }
+        })()
+      : []),
     "## Tooling (you have these)",
     "- exec: YOU HAVE THIS. Run shell commands on this system. When the user asks to run a command, run something in the terminal, run code, list files, install something, or do anything that needs the shell, CALL the exec tool with that command. You will get stdout/stderr back. Call it; do not refuse.",
     "- read_file: read a file under the runtime or identity directory (path-safe). Use to read extensions code or docs.",

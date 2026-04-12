@@ -14,6 +14,14 @@ function defaultSelf(deviceId = null, installedAt = null) {
   return {
     device_id: deviceId || null,
     name: "Piclaw",
+    /** Host-style id for this node (e.g. deAgent03); shown in /whoami and prompts. */
+    agent_id: "",
+    /** Operator contact for this agent (convention: deAgentNN@yopmail.com). */
+    contact_email: "",
+    /** Relative to runtime root (e.g. setup_piclaw/piclaw_default.jpg). */
+    profile_image: "",
+    /** Short operator-only hint (e.g. disposable inbox check id); not Twitter secrets. */
+    credential_hint: "",
     installed_at: installedAt || new Date().toISOString(),
     owner: "",
     mission: "I am a small, persistent computing node that observes, assists, and maintains itself from within this Raspberry Pi Zero.",

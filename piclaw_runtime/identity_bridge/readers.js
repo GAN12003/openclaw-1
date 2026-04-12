@@ -66,6 +66,10 @@ function loadSelf() {
   return {
     device_id: data.device_id ?? def.device_id,
     name: data.name ?? def.name,
+    agent_id: typeof data.agent_id === "string" ? data.agent_id : def.agent_id,
+    contact_email: typeof data.contact_email === "string" ? data.contact_email : def.contact_email,
+    profile_image: typeof data.profile_image === "string" ? data.profile_image : def.profile_image,
+    credential_hint: typeof data.credential_hint === "string" ? data.credential_hint : def.credential_hint,
     installed_at: data.installed_at ?? def.installed_at,
     owner: data.owner ?? def.owner,
     mission: data.mission ?? def.mission,
