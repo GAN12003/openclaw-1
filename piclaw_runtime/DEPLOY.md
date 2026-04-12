@@ -99,6 +99,19 @@ If you use the Twitter integration, install Python deps for the extension:
 pip install -r /opt/piclaw/extensions/twitter_api/requirements.txt
 ```
 
+### 4c. Twitter: one X account per Pi (cookie auth)
+
+Piclaw does **not** use Twitter API keys. It uses **browser cookies** only: `PICLAW_TWITTER_AUTH_TOKEN` and `PICLAW_TWITTER_CT0` (optional: `PICLAW_TWITTER_SCREEN_NAME` for clarity). Set these **on each Pi separately** in `/opt/piclaw/.env` (or via Telegram `/set_key` + value message). Never commit real values.
+
+**Example mapping (replace handles if yours differ):**
+
+| Pi / agent | X (Twitter) account | Env on **that** Pi only |
+|------------|---------------------|-------------------------|
+| deAgent02 | @B4se_Sat0shi | `PICLAW_TWITTER_AUTH_TOKEN`, `PICLAW_TWITTER_CT0`, `PICLAW_TWITTER_SCREEN_NAME=B4se_Sat0shi` |
+| deAgent03 | @yourcompanylist | `PICLAW_TWITTER_AUTH_TOKEN`, `PICLAW_TWITTER_CT0`, `PICLAW_TWITTER_SCREEN_NAME=yourcompanylist` |
+
+After editing env: `sudo systemctl restart piclaw`. Use `/twitter` on Telegram to verify read-only status for that node.
+
 ### 5. Environment (no .env in repo)
 
 ```bash
