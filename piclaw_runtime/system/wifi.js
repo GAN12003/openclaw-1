@@ -10,7 +10,7 @@ const si = require("systeminformation");
 async function getWifi() {
   try {
     // Prefer active WiFi connection (has signalLevel / quality)
-    const connections = await si.wifiConnections().catch(() => []);
+    const connections = await Promise.resolve(si.wifiConnections()).catch(() => []);
     const active = connections[0];
     if (active) {
       return {
@@ -19,7 +19,7 @@ async function getWifi() {
       };
     }
 
-    const ifaces = await si.networkInterfaces();
+    const ifaces = await Promise.resolve(si.networkInterfaces());
     const wlan = ifaces.find(
       (i) => i.iface === "wlan0" || (i.iface && i.iface.toLowerCase().startsWith("wl"))
     ) || ifaces[0];

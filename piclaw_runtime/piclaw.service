@@ -5,10 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=piclaw-01
+User=gan12003
+Group=gan12003
 WorkingDirectory=/opt/piclaw
 ExecStart=/usr/bin/node /opt/piclaw/piclaw.js
-EnvironmentFile=/etc/piclaw.env
+EnvironmentFile=-/etc/piclaw.env
 Restart=always
 RestartSec=5
 StandardOutput=journal

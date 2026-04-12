@@ -7,6 +7,8 @@ const si = require("systeminformation");
  * Standalone — no OpenClaw dependency.
  */
 async function getHealth() {
+  // systeminformation may return a Promise or a plain value depending on version;
+  // Promise.resolve() normalizes so .catch always works.
   const [temp, time] = await Promise.all([
     Promise.resolve(si.cpuTemperature()).catch(() => ({ main: null })),
     Promise.resolve(si.time()).catch(() => ({ uptime: 0 })),

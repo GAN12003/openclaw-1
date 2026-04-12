@@ -1,0 +1,25 @@
+# Secrets and env
+.env
+.env.*
+!.env.example
+
+# Dependencies and build
+node_modules/
+dist/
+*.pyc
+__pycache__/
+
+# Large / binary
+*.zip
+*.tar
+*.tar.gz
+*.mp4
+*.bin
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
