@@ -265,7 +265,9 @@ async function chatWithTools(messages, apiKey, executeTool) {
     };
     const j = await requestAndLogUsage(body, apiKey);
     const msg = j.choices?.[0]?.message;
-    if (!msg) return "(no reply)";
+    if (!msg) {
+      return "(The API returned no assistant message. Check OPENAI_API_KEY / network, then try a shorter question.)";
+    }
 
     const content = msg.content?.trim();
     const toolCalls = msg.tool_calls;
@@ -298,7 +300,10 @@ async function chatWithTools(messages, apiKey, executeTool) {
       continue;
     }
 
-    return content || "(no reply)";
+    return (
+      content ||
+      "(The model returned no text after tools finished. Try a simpler question, or raise PICLAW_CHAT_MAX_TOOL_ROUNDS in .env.)"
+    );
   }
 
   return (

@@ -25,6 +25,29 @@ function buildIntegrationSetupHints(missing) {
  * Set PICLAW_TELEGRAM_TOKEN in env to enable.
  */
 
+/** Avoid writing tokens/passwords to journald (Telegram logs are not secret). */
+function logTelegramIncomingPreview(text) {
+  const t = String(text || "");
+  if (t.startsWith("/")) {
+    console.log("[piclaw] Telegram received:", JSON.stringify(t.slice(0, 100)));
+    return;
+  }
+  if (
+    /github_pat_|ghp_[A-Za-z0-9_]+|gho_[A-Za-z0-9_]+|ghu_[A-Za-z0-9_]+|ghs_[A-Za-z0-9_]+|rghp_[A-Za-z0-9_]+/i.test(t) ||
+    /nvapi-[A-Za-z0-9_-]+/i.test(t) ||
+    /\bBearer\s+[A-Za-z0-9._-]+\b/i.test(t) ||
+    /\b(ct0|auth_token)\s*[:=]\s*\S+/i.test(t)
+  ) {
+    console.log(
+      "[piclaw] Telegram received: <redacted — message looks like a credential; use /set_key KEY then send the value, or set keys only in /opt/piclaw/.env>"
+    );
+    return;
+  }
+  const cap = 72;
+  const tail = t.length > cap ? ` …(+${t.length - cap} chars)` : "";
+  console.log("[piclaw] Telegram received:", JSON.stringify(t.slice(0, cap)) + tail);
+}
+
 function createBot(getStatusText, options = {}) {
   const token = (process.env.PICLAW_TELEGRAM_TOKEN || "").trim();
   console.log("[piclaw] Telegram token length:", token.length);
@@ -61,7 +84,7 @@ function createBot(getStatusText, options = {}) {
     if (!text) return;
     const chatId = msg.chat.id;
     try {
-      console.log("[piclaw] Telegram received:", JSON.stringify(text.slice(0, 80)));
+      logTelegramIncomingPreview(text);
       if (!text.startsWith("/") && typeof options.getPendingEnvKey === "function" && typeof options.appendEnv === "function") {
         const key = options.getPendingEnvKey(chatId);
         if (key) {
