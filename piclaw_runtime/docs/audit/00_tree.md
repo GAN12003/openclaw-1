@@ -32,6 +32,7 @@ piclaw_runtime/
 ├── comms/
 │   └── telegram.js             # createBot(); /status, /whoami, /review_status, /update, /gpio, /probe_uart, /setup, etc.
 ├── core/
+│   ├── env_append.js           # appendEnv / allowed keys for Telegram /set_key → .env
 │   ├── exec_run.js             # runShellCommand for chat exec tool
 │   ├── identity.js             # loadIdentity(); .device_identity.json in runtime dir
 │   ├── self_guard.js           # SAFE_ROOT (runtime dir), isPathSafe()
