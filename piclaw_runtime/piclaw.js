@@ -565,7 +565,7 @@ function executeSetWritingStyleTool(args) {
 async function buildChatReply(chatId, userMessage) {
   const apiKey = (process.env.OPENAI_API_KEY || "").trim();
   if (!apiKey) {
-    return "Chat needs OPENAI_API_KEY (NVIDIA nvapi key) in .env. Base URL defaults to integrate.api.nvidia.com; model defaults to z-ai/glm4.7. Use /whoami or /status.";
+    return "Chat needs OPENAI_API_KEY (NVIDIA nvapi key) in /opt/piclaw/.env, then restart Piclaw. Until then /status shows Billing: missing. Get a key at build.nvidia.com; it must start with nvapi-. Base URL/model can stay default (integrate.api.nvidia.com, z-ai/glm4.7).";
   }
   const systemPrompt = buildChatSystemPrompt();
   let history = chatMemory.get(chatId);
