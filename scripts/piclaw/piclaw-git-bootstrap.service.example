@@ -1,0 +1,28 @@
+# Optional: run branch bootstrap once at boot (after deploy keys are on GitHub).
+#
+# One-time on the Pi:
+#   scp scripts/piclaw/agent-git-bootstrap.sh gan12003@deagent02:~/agent-git-bootstrap.sh
+#   chmod +x ~/agent-git-bootstrap.sh
+#   sudo cp scripts/piclaw/piclaw-git-bootstrap.service.example /etc/systemd/system/piclaw-git-bootstrap.service
+#   # Edit ExecStart path if you installed the script elsewhere
+#   sudo systemctl daemon-reload && sudo systemctl enable --now piclaw-git-bootstrap.service
+#
+# Or run manually after boot: ~/agent-git-bootstrap.sh
+
+[Unit]
+Description=Piclaw Git branch bootstrap (runtime + workspace branches)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=gan12003
+Group=gan12003
+EnvironmentFile=-/opt/piclaw/.env
+EnvironmentFile=-/etc/piclaw.env
+WorkingDirectory=/home/gan12003
+ExecStart=/home/gan12003/agent-git-bootstrap.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
