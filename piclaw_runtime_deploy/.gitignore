@@ -1,6 +1,0 @@
-node_modules/
-.env
-*.log
-heartbeat.json
-.device_identity.json
-codex_credentials.json
