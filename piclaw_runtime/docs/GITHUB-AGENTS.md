@@ -106,6 +106,24 @@ Optional env (same names work if exported or placed in `/opt/piclaw/.env` for sy
 
 If the agent should **file GitHub Issues** or call the **REST API**, configure `PICLAW_GITHUB_PAT` in `.env` (see `.env.example`). That is separate from deploy keys; rotate the PAT if it leaks.
 
+**`PICLAW_GITHUB_USERNAME`** is optional: `/status` treats the GitHub integration as configured when **only** the PAT is set (username can be filled in later for display).
+
+**`PICLAW_GITHUB_ORG`** (optional, e.g. `pixelagents`) is passed into the agent system prompt so Issues and `gh` commands default to the right org. Prefer **`gh`** with `GH_TOKEN` / env over baking a second HTTP client in Piclaw.
+
+## Owner Telegram: git ops and runtime update
+
+When `PICLAW_TELEGRAM_CHAT_ID` matches the chat, these commands are available (see `piclaw_runtime/comms/telegram.js`):
+
+- **`/showupdates`** — `git fetch` in `PICLAW_GIT_CLONE_ROOT` (default `~/src/openclaw-1`), then a short log of commits on `PICLAW_GIT_UPSTREAM_REF` (default `origin/main`) not in the current branch.
+- **`/suggestgit`** — read-only `git status` + `git diff --stat` (capped).
+- **`/updateandrestart`** — runs the checked-in script `piclaw_runtime/scripts/agent-runtime-update.sh` (fixed path only; no user shell fragments): `git pull --ff-only`, `rsync` of `piclaw_runtime/` into `/opt/piclaw` (or `PICLAW_RUNTIME_INSTALL`) with the same excludes as manual docs, `npm install --omit=dev`, `sudo systemctl restart piclaw`.
+
+**sudoers (operator setup):** if the service user cannot restart systemd without a password, add a **NOPASSWD** rule for that user to run **only** this script and **`systemctl restart piclaw`**, or use a systemd path/timer running as root. Example (adjust user and paths):
+
+```sudoers
+piclaw-01 ALL=(root) NOPASSWD: /opt/piclaw/piclaw_runtime/scripts/agent-runtime-update.sh, /bin/systemctl restart piclaw
+```
+
 ## Workspace template
 
 See repository `templates/agent-workspace/` in this repo for a minimal layout you can copy into `workspaces` on each agent branch.

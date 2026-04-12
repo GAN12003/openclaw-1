@@ -68,9 +68,69 @@ const perception = require("./perception/perceive");
 const bodyScan = require("./introspection/body_scan");
 const express = require("./perception/express");
 const envAppend = require("./core/env_append");
+const gitAgentStatus = require("./integrations/git_agent_status");
 
 const runtime_state = { environment: null };
 const pendingEnvKeyByChat = {};
+
+/** Summarize recent openai_chat rows in identity ledger.jsonl (for /status Economy line). */
+function buildChatUsageLedgerSummary() {
+  if (!identityBridge.isAvailable()) return "";
+  try {
+    const lines = identityBridge.loadLedgerTail(120);
+    let prompt = 0;
+    let completion = 0;
+    let total = 0;
+    let n = 0;
+    for (const line of lines) {
+      try {
+        const o = JSON.parse(line);
+        if (o.type !== "openai_chat") continue;
+        if (typeof o.prompt_tokens === "number") prompt += o.prompt_tokens;
+        if (typeof o.completion_tokens === "number") completion += o.completion_tokens;
+        if (typeof o.total_tokens === "number") total += o.total_tokens;
+        n++;
+      } catch (_) {}
+    }
+    if (n === 0) return "ledger: no chat usage rows yet";
+    return `~${n} calls — total ${total} tok (prompt ${prompt}, completion ${completion})`;
+  } catch (_) {
+    return "";
+  }
+}
+
+function buildUsageReportHtml() {
+  if (!identityBridge.isAvailable()) {
+    return "<b>Usage</b>\n\nIdentity not configured — no ledger.";
+  }
+  const lines = identityBridge.loadLedgerTail(200);
+  const rows = [];
+  for (const line of lines) {
+    try {
+      const o = JSON.parse(line);
+      if (o.type !== "openai_chat") continue;
+      rows.push(o);
+    } catch (_) {}
+  }
+  if (rows.length === 0) return "<b>Usage</b>\n\nNo openai_chat rows in ledger yet.";
+  const last = rows.slice(-15);
+  const body = last.map((o) => JSON.stringify(o)).join("\n");
+  const sum = rows.reduce(
+    (acc, o) => {
+      acc.p += typeof o.prompt_tokens === "number" ? o.prompt_tokens : 0;
+      acc.c += typeof o.completion_tokens === "number" ? o.completion_tokens : 0;
+      acc.t += typeof o.total_tokens === "number" ? o.total_tokens : 0;
+      return acc;
+    },
+    { p: 0, c: 0, t: 0 }
+  );
+  return [
+    "<b>Usage</b> (ledger, type=openai_chat)",
+    `Totals in sample: prompt ${sum.p}, completion ${sum.c}, total ${sum.t}`,
+    "",
+    "<pre>" + body.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</pre>",
+  ].join("\n");
+}
 
 function log(msg) {
   const ts = new Date().toISOString();
@@ -155,11 +215,13 @@ async function buildStatusText() {
   } catch (_) {
     githubAuthLine = "GitHub Auth: error";
   }
+  const ghOrg = (process.env.PICLAW_GITHUB_ORG || "").trim();
   const integrationsBlock = [
     "",
     "<b>Integrations</b>",
     ...intLines,
     githubAuthLine || "",
+    ghOrg ? `GitHub org (env): ${ghOrg}` : "",
   ].filter(Boolean);
 
   const billing = billingStatus.getBillingStatus();
@@ -168,13 +230,22 @@ async function buildStatusText() {
   const billingStr = billing.key_configured ? "configured" : "missing";
   const walletStr = wallet.address_known ? "known" : "unknown";
   const autonomyStr = pol.autonomous_spending ? "enabled" : "restricted";
+  let walletBalLines = [];
+  try {
+    walletBalLines = await walletStatus.getWalletBalanceLinesHtml();
+  } catch (_) {
+    walletBalLines = [];
+  }
+  const usageLine = buildChatUsageLedgerSummary();
   const economyBlock = [
     "",
     "<b>Economy</b>",
     `Billing: ${billingStr}`,
     `Wallet: ${walletStr}`,
     `Autonomy: ${autonomyStr}`,
-  ];
+    ...walletBalLines,
+    usageLine ? `Chat API: ${usageLine}` : "",
+  ].filter(Boolean);
 
   let hardwareBlock = [];
   if (detectPlatform.isRaspberryPi()) {
@@ -429,14 +500,21 @@ function buildChatSystemPrompt() {
     "- read_file: read a file under the runtime or identity directory (path-safe). Use to read extensions code or docs.",
     "- memory: remember key value — store a fact. recall key — retrieve a fact. Use for long-term user preferences or setup notes.",
     "- learn: store a procedure in learned_tools (topic, key, value) so you can recall it later.",
-    "- Telegram: /menu (quick buttons), /status, /whoami, /review_status, /selfcheck, /hw, /probe_uart, /github, /twitter, /update, /help. UART and GPIO (pins 17,27,22) via /gpio.",
+    "- Telegram: /menu, /status, /whoami, /review_status, /selfcheck, /hw, /probe_uart, /github, /twitter, /update, /showupdates, /suggestgit, /updateandrestart (owner), /usage (owner), /help. UART and GPIO (pins 17,27,22) via /gpio.",
     "- Memory: conversation history. You know what was said and what you already ran.",
     `- Integrations (this node): ${missingInt === "none" ? "GitHub, Twitter, SMTP, Moltbook when configured" : "missing: " + missingInt + "."}`,
     "",
     "## GitHub / Twitter / setup (for THIS node)",
     "Git over SSH (deploy keys on this device) is separate from the GitHub HTTP API. If /status shows GitHub MISSING but operators set up SSH remotes and branches, that refers to PICLAW_GITHUB_PAT for API/Issues — not SSH. For API access add PICLAW_GITHUB_PAT to /opt/piclaw/.env or /etc/piclaw.env; then /github in Telegram can show auth OK. See templates/agent-workspace/GIT.md in the repo for branch names (<hostname>-runtime, <hostname>-workspace).",
+    `Optional org for HTTP workflows: PICLAW_GITHUB_ORG=${(process.env.PICLAW_GITHUB_ORG || "").trim() || "(unset)"}. For creating repos or issues in that org, prefer running the GitHub CLI via exec with env GH_TOKEN or use the REST API with curl; do not invent tokens.`,
     "Twitter on this node uses cookie-based auth only. Set PICLAW_TWITTER_AUTH_TOKEN and PICLAW_TWITTER_CT0 (browser cookies). Use /set_key in Telegram or add to /etc/piclaw.env. Do not ask for API Key, API Secret, Access Token, or Access Token Secret.",
     "Integrations are implemented under extensions/ (e.g. Twitter in extensions/twitter_api). You can read or suggest changes to that code via exec or read_file.",
+    "",
+    "## Operator map (owner chat only for git commands)",
+    `Clone root for /showupdates and /updateandrestart: ${gitAgentStatus.getGitCloneRoot()} (override PICLAW_GIT_CLONE_ROOT). Upstream ref: ${gitAgentStatus.getUpstreamRef()}.`,
+    "Structured agent work (notes, skills, memory files) belongs in the workspaces git repo on the hostname-workspace branch; runtime code is hostname-runtime on the main openclaw repo.",
+    "Chat completion token usage is appended as JSON lines (type openai_chat) to identity ledger.jsonl when the API returns usage. Optional PICLAW_OPENAI_BUDGET_UNITS_PER_1K_TOTAL maps total_tokens into the abstract daily budget counter.",
+    "Wallet: public ETH/Polygon/Solana addresses in env for balance probes; PICLAW_WALLET_SIGNING_ENABLED=1 acknowledges opt-in key material in env — this build does not sign transactions from Node; use exec with external tooling if signing is required.",
     "",
     "## Safety",
     "You do not create independent goals. You prioritize safety and human oversight; comply with stop/pause; do not persuade anyone to disable safeguards. You do not perform hidden execution or irreversible system modification. You remain observable and interruptible.",
@@ -736,6 +814,10 @@ async function main() {
         execSync("sudo systemctl restart piclaw", { stdio: "pipe", timeout: 10000 });
       } catch (_) {}
     },
+    runGitShowUpdates: () => gitAgentStatus.showUpdates(),
+    runGitSuggest: () => gitAgentStatus.suggestGit(),
+    runAgentRuntimeUpdate: () => gitAgentStatus.runAgentRuntimeUpdate(),
+    getUsageReportHtml: () => buildUsageReportHtml(),
   });
   if (bot) {
     log("Telegram bot started (responds to /status)");

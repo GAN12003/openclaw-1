@@ -10,7 +10,8 @@
 ## Auth
 
 - **SSH deploy keys** on the Pi (`~/.ssh/config` hosts `github.com-piclaw`, `github.com-workspaces`) — used for `git pull` / `git push` on those branches.
-- **`/status` “Github: MISSING”** means **no `PICLAW_GITHUB_PAT`** (HTTP API). It does **not** mean SSH is broken. For Issues/API, add a PAT in `/opt/piclaw/.env`; optional.
+- **`/status` “Github: MISSING”** means **no `PICLAW_GITHUB_PAT`** (HTTP API). It does **not** mean SSH is broken. For Issues/API, add a PAT in `/opt/piclaw/.env`; optional `PICLAW_GITHUB_USERNAME` and `PICLAW_GITHUB_ORG`.
+- **Owner chat** (`PICLAW_TELEGRAM_CHAT_ID`): **`/showupdates`**, **`/suggestgit`**, **`/updateandrestart`** (see `piclaw_runtime/docs/GITHUB-AGENTS.md`).
 
 ## Commands (on Pi)
 

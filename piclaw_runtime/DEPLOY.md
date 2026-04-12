@@ -432,6 +432,15 @@ Test in Telegram: send **/status** and a plain message (e.g. **Hey**) to the bot
 
 ---
 
+## Rollout after a leak or config change
+
+1. **Rotate** any GitHub PAT that was pasted in chat or committed; create a new token with minimal scopes and set it only in `/opt/piclaw/.env` (or `/set_key`), never in `self.json` or templates.
+2. Set per-agent env: `PICLAW_GITHUB_PAT`, optional `PICLAW_GITHUB_USERNAME`, optional `PICLAW_GITHUB_ORG`, `PICLAW_GIT_CLONE_ROOT` if the clone is not `~/src/openclaw-1`, and `PICLAW_TELEGRAM_CHAT_ID` for owner-only commands.
+3. Land fixes on `main`, then on each Pi merge or fast-forward the agent runtime branch, **or** use owner Telegram **`/updateandrestart`** once `sudoers` allows the update script (see `piclaw_runtime/docs/GITHUB-AGENTS.md`).
+4. Verify: **`/github`**, **`/status`** (Integrations + Economy), **`/showupdates`**, **`/suggestgit`**, then one controlled **`/updateandrestart`** if applicable.
+
+---
+
 ## After it works
 
 Next steps: UART detection, GPIO monitoring, network alerts, health confirmation + rollback for updates.

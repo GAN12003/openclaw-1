@@ -82,6 +82,15 @@ function request(body, apiKey) {
   });
 }
 
+async function requestAndLogUsage(body, apiKey) {
+  const j = await request(body, apiKey);
+  try {
+    const { logChatCompletionUsage } = require("./chat_usage");
+    logChatCompletionUsage(j && j.usage);
+  } catch (_) {}
+  return j;
+}
+
 /**
  * Call OpenAI Chat Completions with optional conversation history (memory).
  * @param {string} userMessage - User text.
@@ -96,7 +105,7 @@ function chat(userMessage, systemPrompt, apiKey, history = []) {
     ...history.slice(-MAX_HISTORY),
     { role: "user", content: userMessage },
   ];
-  return request(
+  return requestAndLogUsage(
     {
       model: process.env.OPENAI_CHAT_MODEL || DEFAULT_CHAT_MODEL,
       max_tokens: 1024,
@@ -253,7 +262,7 @@ async function chatWithTools(messages, apiKey, executeTool) {
       tools,
       tool_choice: "auto",
     };
-    const j = await request(body, apiKey);
+    const j = await requestAndLogUsage(body, apiKey);
     const msg = j.choices?.[0]?.message;
     if (!msg) return "(no reply)";
 

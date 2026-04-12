@@ -29,6 +29,10 @@ function createBot(getStatusText, options = {}) {
     { command: "twitter", description: "Twitter status" },
     { command: "hw", description: "Hardware (UART, GPIO)" },
     { command: "update", description: "Apply update" },
+    { command: "showupdates", description: "Commits behind main (owner)" },
+    { command: "suggestgit", description: "Git status on clone (owner)" },
+    { command: "updateandrestart", description: "Pull rsync npm restart (owner)" },
+    { command: "usage", description: "Chat API usage ledger (owner)" },
   ]).catch((err) => console.warn("[piclaw] setMyCommands failed:", err.message));
 
   bot.on("polling_error", (err) => {
@@ -149,7 +153,8 @@ function createBot(getStatusText, options = {}) {
         const status = await options.getGitHubStatus();
         let text;
         if (!status.configured) {
-          text = "GitHub: not configured (PICLAW_GITHUB_PAT missing)";
+          text =
+            "GitHub: not configured — set <code>PICLAW_GITHUB_PAT</code> in <code>/opt/piclaw/.env</code> (optional <code>PICLAW_GITHUB_USERNAME</code> for labels). Use /setup or /set_key.";
         } else if (status.ok) {
           const login = status.login ? `@${status.login}` : "unknown";
           const rate = status.rate_limit_remaining != null ? ` · Rate limit: ${status.rate_limit_remaining} remaining` : "";
@@ -374,6 +379,84 @@ function createBot(getStatusText, options = {}) {
     });
   }
 
+  if (typeof options.isOwnerChat === "function" && typeof options.runGitShowUpdates === "function") {
+    bot.onText(/\/showupdates/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId)) {
+          await bot.sendMessage(chatId, "Only the owner chat can run /showupdates.");
+          return;
+        }
+        await bot.sendMessage(chatId, "Fetching…");
+        const r = await options.runGitShowUpdates();
+        if (r.ok && r.text) await bot.sendMessage(chatId, r.text, { parse_mode: "HTML" });
+        else await bot.sendMessage(chatId, `Error: ${r.error || "unknown"}`);
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.runGitSuggest === "function") {
+    bot.onText(/\/suggestgit/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId)) {
+          await bot.sendMessage(chatId, "Only the owner chat can run /suggestgit.");
+          return;
+        }
+        const r = await options.runGitSuggest();
+        if (r.ok && r.text) await bot.sendMessage(chatId, r.text, { parse_mode: "HTML" });
+        else await bot.sendMessage(chatId, `Error: ${r.error || "unknown"}`);
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.runAgentRuntimeUpdate === "function") {
+    bot.onText(/\/updateandrestart/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId)) {
+          await bot.sendMessage(chatId, "Only the owner chat can run /updateandrestart.");
+          return;
+        }
+        await bot.sendMessage(chatId, "Running update script (git pull, rsync, npm, restart). This may take a few minutes…");
+        const r = await options.runAgentRuntimeUpdate();
+        if (r.ok) {
+          const tail = [r.stdout, r.stderr].filter(Boolean).join("\n").trim().slice(-3500);
+          await bot.sendMessage(chatId, `<b>Done</b>\n<pre>${String(tail).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`, {
+            parse_mode: "HTML",
+          });
+        } else {
+          const tail = [r.stdout, r.stderr, r.error].filter(Boolean).join("\n").trim().slice(0, 3500);
+          await bot.sendMessage(chatId, `<b>Failed</b>\n<pre>${String(tail).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`, {
+            parse_mode: "HTML",
+          });
+        }
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.getUsageReportHtml === "function") {
+    bot.onText(/\/usage/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId)) {
+          await bot.sendMessage(chatId, "Only the owner chat can run /usage.");
+          return;
+        }
+        const text = options.getUsageReportHtml();
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
   if (typeof options.isOwnerChat === "function" && typeof options.setPendingEnvKey === "function" && typeof options.appendEnv === "function") {
     bot.onText(/\/set_key\s+(\S+)/, async (msg, match) => {
       const chatId = msg.chat.id;
@@ -527,7 +610,8 @@ function createBot(getStatusText, options = {}) {
           "/setup — env keys & missing integrations",
           "/github, /twitter — auth status",
           "/hw, /gpio — hardware",
-          "/update — apply update",
+          "/update — apply update (A/B)",
+          "/showupdates, /suggestgit, /updateandrestart, /usage — owner only",
           "/help — full command list",
           "",
           "Send any message to chat with me.",
@@ -558,6 +642,10 @@ function createBot(getStatusText, options = {}) {
       "/uart_devices — list UART devices",
       "/gpio — GPIO control (pulse/set)",
       "/update — apply update (needs A/B setup)",
+      "/showupdates — commits on upstream not merged into current clone HEAD (owner)",
+      "/suggestgit — git status + diff stat in PICLAW_GIT_CLONE_ROOT (owner)",
+      "/updateandrestart — pull, rsync piclaw_runtime to /opt/piclaw, npm, restart service (owner)",
+      "/usage — recent chat completion token rows from identity ledger (owner)",
       "/setup — list missing integrations, set env keys",
       "/experiments — list builder-researcher experiments (queue)",
       "/run_experiment &lt;id&gt; — run one experiment by id",
@@ -568,10 +656,6 @@ function createBot(getStatusText, options = {}) {
       "Send normal text to chat with me (identity + memory).",
     ];
     await bot.sendMessage(chatId, helpLines.join("\n"), { parse_mode: "HTML" });
-  });
-
-  bot.on("polling_error", (err) => {
-    console.error("[piclaw] Telegram polling error:", err.message);
   });
 
   return bot;
