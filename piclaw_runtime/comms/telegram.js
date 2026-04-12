@@ -429,7 +429,16 @@ function createBot(getStatusText, options = {}) {
       const chatId = msg.chat.id;
       try {
         if (!options.isOwnerChat(chatId)) {
-          await bot.sendMessage(chatId, "Only the owner chat can run /updateandrestart.");
+          await bot.sendMessage(
+            chatId,
+            [
+              "Only the owner chat can run /updateandrestart.",
+              "",
+              `This chat id: <code>${chatId}</code>`,
+              "Set <code>PICLAW_TELEGRAM_CHAT_ID</code> in <code>/opt/piclaw/.env</code> to that value (or use /set_key), then restart piclaw.",
+            ].join("\n"),
+            { parse_mode: "HTML" }
+          );
           return;
         }
         await bot.sendMessage(chatId, "Running update script (git pull, rsync, npm, restart). This may take a few minutes…");

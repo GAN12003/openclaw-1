@@ -37,6 +37,7 @@ class GraphQLQueries:
     REPLY = 'zIdRTsSqcD6R5uMtm_N0pw'
     QUOTE = 'UYy4T67XpYXgWKOafKXB_A'
     USER_BY_SCREEN_NAME = 'sLVLhk0bGj3MVFEKTdax1w'
+    USER_BY_REST_ID = 'iMuA8BNF1TsHwjiEmybpHQ'
     USER_TWEETS = 'Yy5-VUhicYcDOv-9rHH0YA'
     USER_TWEETS_AND_REPLIES = 'j1YMo3_NlWIKf90W8bY5Lw'
     CREATE_DM = 'Zrnh_0gKnvG5J4xfIk5FRA'
@@ -58,7 +59,8 @@ class Endpoints:
     
     # User endpoints
     VERIFY_CREDENTIALS = f"{API_V1_1}/account/update_profile.json"
-    USER_BY_SCREEN_NAME = f"{API_GRAPHQL}/{GraphQLQueries.USER_BY_SCREEN_NAME}"
+    USER_BY_SCREEN_NAME = f"{API_GRAPHQL}/{GraphQLQueries.USER_BY_SCREEN_NAME}/UserByScreenName"
+    USER_BY_REST_ID = f"{API_GRAPHQL}/{GraphQLQueries.USER_BY_REST_ID}/UserByRestId"
     USER_TWEETS = f"{API_GRAPHQL}/{GraphQLQueries.USER_TWEETS}"  # Will append /UserTweets in the method
     USER_TWEETS_AND_REPLIES = f"{API_GRAPHQL}/{GraphQLQueries.USER_TWEETS_AND_REPLIES}"  # Will append /UserTweetsAndReplies in the method
     USER_MEDIA = f"{API_GRAPHQL}/{GraphQLQueries.USER_MEDIA}"  # Will append /UserMedia in the method
