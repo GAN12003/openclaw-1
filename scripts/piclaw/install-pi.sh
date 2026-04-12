@@ -9,6 +9,7 @@
 # Optional:
 #   PICLAW_GIT_CLONE_ROOT  default: $HOME/src
 #   PICLAW_REPO_DIR_NAME   default: openclaw-1
+#   PICLAW_RUNTIME_BRANCH  default: main (e.g. deagent01-runtime when branch exists on origin)
 #
 # After install: edit /opt/piclaw/.env (Telegram, OPENAI_API_KEY), then:
 #   sudo systemctl restart piclaw
@@ -31,15 +32,34 @@ IDENTITY_ROOT="/opt/piclaw_identity"
 
 mkdir -p "$CLONE_ROOT"
 REPO_PATH="$CLONE_ROOT/$REPO_DIR_NAME"
+RUNTIME_BRANCH="${PICLAW_RUNTIME_BRANCH:-main}"
+
+sync_repo_branch() {
+  local rp="$1"
+  local br="$RUNTIME_BRANCH"
+  git -C "$rp" fetch origin
+  if [[ "$br" == "main" ]]; then
+    git -C "$rp" checkout main
+    git -C "$rp" pull --ff-only origin main || true
+    return 0
+  fi
+  if git -C "$rp" show-ref --verify --quiet "refs/remotes/origin/$br"; then
+    git -C "$rp" checkout "$br"
+    git -C "$rp" pull --ff-only "origin" "$br" || true
+    return 0
+  fi
+  echo "[install-pi] No origin/$br — using main (create the branch on GitHub or unset PICLAW_RUNTIME_BRANCH)"
+  git -C "$rp" checkout main
+  git -C "$rp" pull --ff-only origin main || true
+}
 
 if [[ ! -d "$REPO_PATH/.git" ]]; then
   echo "[install-pi] Cloning $REPO_URL -> $REPO_PATH"
   git clone "$REPO_URL" "$REPO_PATH"
+  sync_repo_branch "$REPO_PATH"
 else
   echo "[install-pi] Updating existing clone $REPO_PATH"
-  git -C "$REPO_PATH" fetch origin
-  git -C "$REPO_PATH" checkout main
-  git -C "$REPO_PATH" pull origin main || true
+  sync_repo_branch "$REPO_PATH"
 fi
 
 if [[ ! -d "$REPO_PATH/$RUNTIME_SRC_NAME" ]]; then
@@ -76,6 +96,8 @@ touch "$INSTALL_ROOT/.env"
 chmod 600 "$INSTALL_ROOT/.env" 2>/dev/null || true
 grep -qF OPENAI_BASE_URL= "$INSTALL_ROOT/.env" 2>/dev/null || echo "OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1" >> "$INSTALL_ROOT/.env"
 grep -qF OPENAI_CHAT_MODEL= "$INSTALL_ROOT/.env" 2>/dev/null || echo "OPENAI_CHAT_MODEL=z-ai/glm4.7" >> "$INSTALL_ROOT/.env"
+grep -qF PICLAW_GIT_CLONE_ROOT= "$INSTALL_ROOT/.env" 2>/dev/null || echo "PICLAW_GIT_CLONE_ROOT=$REPO_PATH" >> "$INSTALL_ROOT/.env"
+grep -qF PICLAW_IDENTITY_PATH= "$INSTALL_ROOT/.env" 2>/dev/null || echo "PICLAW_IDENTITY_PATH=$IDENTITY_ROOT" >> "$INSTALL_ROOT/.env"
 
 SERVICE_SRC="$REPO_PATH/$RUNTIME_SRC_NAME/piclaw.service"
 if [[ ! -f "$SERVICE_SRC" ]]; then
