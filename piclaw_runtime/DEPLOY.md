@@ -93,7 +93,15 @@ npm install --omit=dev
 
 ### 4b. Twitter extension (optional, for `/twitter`)
 
-If you use the Twitter integration, install Python deps for the extension:
+If you use the Twitter integration, install Python deps for the extension.
+
+On Debian/Raspberry Pi OS (PEP 668), prefer **apt** for aiohttp (required by `twitter_api.core`):
+
+```bash
+sudo apt-get install -y python3-aiohttp python3-aiofiles
+```
+
+Optional extras from `requirements.txt` (venv, or `pip install --break-system-packages` if you accept the risk):
 
 ```bash
 pip install -r /opt/piclaw/extensions/twitter_api/requirements.txt
