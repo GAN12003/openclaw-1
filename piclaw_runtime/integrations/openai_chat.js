@@ -69,6 +69,22 @@ function requestOnce(body, apiKey) {
         res.on("end", () => {
           try {
             const code = res.statusCode || 0;
+            if (code === 429) {
+              const ra = res.headers["retry-after"] || res.headers["Retry-After"];
+              let delayMs = 12_000;
+              if (ra != null && /^\d+$/.test(String(ra).trim())) {
+                const sec = parseInt(String(ra).trim(), 10);
+                if (Number.isFinite(sec)) {
+                  delayMs = Math.min(120_000, Math.max(3000, sec * 1000));
+                }
+              }
+              const err = new Error("HTTP 429 Too Many Requests");
+              err.code = "RATE_LIMIT";
+              err.retryAfterMs = delayMs;
+              err.statusCode = 429;
+              reject(err);
+              return;
+            }
             if (code < 200 || code >= 300) {
               const snippet = String(data || "").trim().slice(0, 800);
               reject(new Error(`HTTP ${code}${snippet ? ": " + snippet : ""}`));
@@ -96,16 +112,47 @@ function requestOnce(body, apiKey) {
   });
 }
 
-/** One retry on timeout or socket hang up to reduce flaky replies. */
-function request(body, apiKey) {
-  return requestOnce(body, apiKey).catch((err) => {
-    const msg = (err && err.message) || "";
-    const retryable = msg === "timeout" || msg.includes("socket hang up") || msg.includes("ECONNRESET");
-    if (retryable) {
-      return requestOnce(body, apiKey);
+/**
+ * POST chat/completions. Retries on HTTP 429 (NVIDIA free tier rate limits) with backoff.
+ * Env: PICLAW_OPENAI_429_RETRIES = extra attempts after first 429 (default 5, max 12).
+ */
+async function request(body, apiKey) {
+  const extra429 = Math.min(12, Math.max(0, parseInt(process.env.PICLAW_OPENAI_429_RETRIES || "5", 10) || 5));
+  const max429Attempts = 1 + extra429;
+  let attempt429 = 0;
+
+  for (;;) {
+    try {
+      return await requestOnce(body, apiKey);
+    } catch (err) {
+      if (err && err.code === "RATE_LIMIT" && attempt429 < max429Attempts) {
+        const base = err.retryAfterMs != null ? err.retryAfterMs : Math.min(120_000, 8000 + 6000 * attempt429);
+        console.warn(
+          "[piclaw] openai_chat: HTTP 429 from provider; backing off",
+          base,
+          "ms (attempt",
+          attempt429 + 1,
+          "/",
+          max429Attempts,
+          ")"
+        );
+        await new Promise((r) => setTimeout(r, base));
+        attempt429++;
+        continue;
+      }
+      if (err && err.code === "RATE_LIMIT") {
+        throw new Error(
+          "Rate limited (HTTP 429) by the AI API after several waits. Wait a few minutes, check NVIDIA quota at build.nvidia.com, or space out messages."
+        );
+      }
+      const msg = (err && err.message) || "";
+      const retryable = msg === "timeout" || msg.includes("socket hang up") || msg.includes("ECONNRESET");
+      if (retryable) {
+        return requestOnce(body, apiKey);
+      }
+      throw err;
     }
-    throw err;
-  });
+  }
 }
 
 async function requestAndLogUsage(body, apiKey) {
