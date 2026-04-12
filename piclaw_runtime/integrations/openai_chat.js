@@ -12,6 +12,9 @@ function providerMessageMaxChars() {
 
 function capMessageForProvider(m) {
   if (!m || typeof m !== "object") return m;
+  // Never truncate system: it is already capped in piclaw.js (PICLAW_SYSTEM_PROMPT_MAX_CHARS).
+  // Truncating system here (default 10k) was cutting most instructions off and led to empty API choices.
+  if (m.role === "system") return m;
   const max = providerMessageMaxChars();
   const out = { ...m };
   if (typeof out.content === "string" && out.content.length > max) {
@@ -65,6 +68,12 @@ function requestOnce(body, apiKey) {
         res.on("data", (chunk) => { data += chunk; });
         res.on("end", () => {
           try {
+            const code = res.statusCode || 0;
+            if (code < 200 || code >= 300) {
+              const snippet = String(data || "").trim().slice(0, 800);
+              reject(new Error(`HTTP ${code}${snippet ? ": " + snippet : ""}`));
+              return;
+            }
             const j = JSON.parse(data);
             if (j.error) {
               reject(new Error(j.error.message || "OpenAI error"));
@@ -108,6 +117,30 @@ async function requestAndLogUsage(body, apiKey) {
   return j;
 }
 
+/** Some providers occasionally return 200 with no choices[0].message; retry before surfacing an error. */
+async function requestCompletionUntilMessage(body, apiKey) {
+  const parsed = parseInt(process.env.PICLAW_CHAT_EMPTY_RETRY || "3", 10);
+  const maxAttempts = Number.isFinite(parsed) ? Math.min(5, Math.max(1, parsed)) : 3;
+  let last = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const j = await requestAndLogUsage(body, apiKey);
+    last = j;
+    if (j.choices?.[0]?.message != null) return j;
+    const fr = j.choices?.[0]?.finish_reason;
+    const n = Array.isArray(j.choices) ? j.choices.length : 0;
+    console.warn(
+      "[piclaw] openai_chat: no assistant message in choices; retry",
+      `${attempt + 1}/${maxAttempts}`,
+      fr ? `finish_reason=${fr}` : "",
+      `choices_len=${n}`
+    );
+    if (attempt + 1 < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  return last;
+}
+
 /**
  * Call OpenAI Chat Completions with optional conversation history (memory).
  * @param {string} userMessage - User text.
@@ -122,7 +155,7 @@ function chat(userMessage, systemPrompt, apiKey, history = []) {
     ...history.slice(-MAX_HISTORY),
     { role: "user", content: userMessage },
   ];
-  return requestAndLogUsage(
+  return requestCompletionUntilMessage(
     {
       model: process.env.OPENAI_CHAT_MODEL || DEFAULT_CHAT_MODEL,
       max_tokens: 1024,
@@ -287,7 +320,7 @@ async function chatWithTools(messages, apiKey, executeTool) {
       tools,
       tool_choice: "auto",
     };
-    const j = await requestAndLogUsage(body, apiKey);
+    const j = await requestCompletionUntilMessage(body, apiKey);
     const msg = j.choices?.[0]?.message;
     if (!msg) {
       const fr = j.choices?.[0]?.finish_reason;
