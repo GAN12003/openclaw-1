@@ -2,6 +2,20 @@
 
 Copy **only** the runtime to the Pi (not the whole OpenClaw repo).
 
+## Automated install (Linux Pi, clone + systemd + boot)
+
+From the Pi, after SSH and GitHub deploy keys (or HTTPS) are set:
+
+```bash
+curl -fsSL -o /tmp/install-pi.sh https://raw.githubusercontent.com/GAN12003/openclaw-1/main/scripts/piclaw/install-pi.sh
+# or copy scripts/piclaw/install-pi.sh from a clone
+chmod +x /tmp/install-pi.sh
+export PICLAW_REPO_SSH="git@github.com-piclaw:GAN12003/openclaw-1.git"
+bash /tmp/install-pi.sh
+```
+
+This installs Node deps, syncs `piclaw_runtime` → `/opt/piclaw`, installs **`piclaw.service`**, runs **`systemctl enable --now piclaw`** so Piclaw **starts on every boot** and **restarts on crash** (`Restart=always`). Then edit `/opt/piclaw/.env` and `sudo systemctl restart piclaw`.
+
 ---
 
 ## One-time full setup (Windows)
