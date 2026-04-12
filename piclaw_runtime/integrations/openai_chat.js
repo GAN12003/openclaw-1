@@ -2,7 +2,24 @@
 
 const https = require("https");
 
-const MAX_HISTORY = 20; // last 20 messages (10 turns) for context
+const MAX_HISTORY = 20; // last 20 messages (10 turns) for legacy chat(); Piclaw uses its own CHAT_HISTORY_LEN
+
+/** Cap per-message text sent to the provider (tool outputs + history) to avoid huge prompts. */
+function providerMessageMaxChars() {
+  const n = parseInt(process.env.PICLAW_CHAT_PROVIDER_MSG_MAX_CHARS || "10000", 10);
+  return Number.isFinite(n) ? Math.min(50000, Math.max(2000, n)) : 10000;
+}
+
+function capMessageForProvider(m) {
+  if (!m || typeof m !== "object") return m;
+  const max = providerMessageMaxChars();
+  const out = { ...m };
+  if (typeof out.content === "string" && out.content.length > max) {
+    const over = out.content.length - max;
+    out.content = out.content.slice(0, max) + `\n…[truncated ${over} chars for token budget]`;
+  }
+  return out;
+}
 
 /** OpenAI-compatible API base (no trailing slash). Piclaw defaults to NVIDIA NIM integrate API (free-tier models). */
 const DEFAULT_OPENAI_BASE_URL = "https://integrate.api.nvidia.com/v1";
@@ -112,7 +129,13 @@ function chat(userMessage, systemPrompt, apiKey, history = []) {
       messages,
     },
     apiKey
-  ).then((j) => (j.choices?.[0]?.message?.content?.trim() || "(no reply)"));
+  ).then((j) => {
+    const c = j.choices?.[0]?.message?.content?.trim();
+    return (
+      c ||
+      "(The API returned no assistant text. Check OPENAI_API_KEY / model name / network, or try a shorter question.)"
+    );
+  });
 }
 
 /** Exec tool definition for OpenAI (run shell on this node). */
@@ -256,17 +279,23 @@ async function chatWithTools(messages, apiKey, executeTool) {
   let round = 0;
 
   while (round < maxRounds) {
+    const cappedMessages = messages.map(capMessageForProvider);
     const body = {
       model: process.env.OPENAI_CHAT_MODEL || DEFAULT_CHAT_MODEL,
       max_tokens: 1024,
-      messages,
+      messages: cappedMessages,
       tools,
       tool_choice: "auto",
     };
     const j = await requestAndLogUsage(body, apiKey);
     const msg = j.choices?.[0]?.message;
     if (!msg) {
-      return "(The API returned no assistant message. Check OPENAI_API_KEY / network, then try a shorter question.)";
+      const fr = j.choices?.[0]?.finish_reason;
+      console.warn(
+        "[piclaw] openai_chat: no assistant message in response",
+        fr ? `finish_reason=${fr}` : ""
+      );
+      return "(The API returned no assistant message. Check OPENAI_API_KEY / model id / network. If usage is high, lower PICLAW_SYSTEM_PROMPT_MAX_CHARS or PICLAW_CHAT_HISTORY_MESSAGES.)";
     }
 
     const content = msg.content?.trim();

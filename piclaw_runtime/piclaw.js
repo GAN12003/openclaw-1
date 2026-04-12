@@ -596,16 +596,19 @@ function buildChatSystemPrompt() {
     const learned = identityBridge.loadKnowledge("learned_tools");
     const memoryFacts = identityBridge.loadKnowledge("memory");
     const learnedStr = typeof learned === "object" && learned !== null && Object.keys(learned).length > 0
-      ? JSON.stringify(learned).slice(0, 1500) : "(none)";
+      ? JSON.stringify(learned).slice(0, 900) : "(none)";
     const memoryStr = typeof memoryFacts === "object" && memoryFacts !== null && Object.keys(memoryFacts).length > 0
-      ? JSON.stringify(memoryFacts).slice(0, 1000) : "(none)";
+      ? JSON.stringify(memoryFacts).slice(0, 600) : "(none)";
     lines.push("", "Learned tools / knowledge: " + learnedStr);
     lines.push("Stored memory (facts): " + memoryStr);
   } catch (_) {}
 
   try {
-    const tail = identityBridge.loadExperiencesTail(30);
-    if (tail.length) lines.push("", "Recent node events: " + tail.join(" | "));
+    const tail = identityBridge.loadExperiencesTail(15);
+    if (tail.length) {
+      const joined = tail.join(" | ");
+      lines.push("", "Recent node events: " + (joined.length > 2400 ? joined.slice(0, 2400) + "…" : joined));
+    }
   } catch (_) {}
 
   try {
@@ -618,12 +621,37 @@ function buildChatSystemPrompt() {
     }
   } catch (_) {}
 
-  return lines.join("\n");
+  const full = lines.join("\n");
+  const maxSys = Math.min(
+    100_000,
+    Math.max(12_000, parseInt(process.env.PICLAW_SYSTEM_PROMPT_MAX_CHARS || "28000", 10) || 28000)
+  );
+  if (full.length > maxSys) {
+    return (
+      full.slice(0, maxSys) +
+      "\n\n[System context truncated for token budget; shorten goals/skills or raise PICLAW_SYSTEM_PROMPT_MAX_CHARS.]"
+    );
+  }
+  return full;
 }
 
-/** In-memory conversation history per Telegram chat (like OpenClaw memory). Last 20 messages. */
+/** In-memory conversation history per Telegram chat (like OpenClaw memory). */
 const chatMemory = new Map();
-const CHAT_HISTORY_LEN = 20;
+
+function getChatHistoryLen() {
+  const raw = parseInt(process.env.PICLAW_CHAT_HISTORY_MESSAGES || "12", 10);
+  return Number.isFinite(raw) ? Math.min(30, Math.max(4, raw)) : 12;
+}
+
+function capChatTurnText(text) {
+  const max = Math.min(
+    32000,
+    Math.max(1500, parseInt(process.env.PICLAW_CHAT_HISTORY_MSG_MAX_CHARS || "4000", 10) || 4000)
+  );
+  const s = text != null ? String(text) : "";
+  if (s.length <= max) return s;
+  return s.slice(0, max) + `\n…[history message truncated ${s.length - max} chars]`;
+}
 
 /**
  * Execute the exec tool (run shell on this node). OpenClaw-style; all allowed on this edge node.
@@ -632,9 +660,18 @@ async function executeExecTool(args) {
   const command = (args.command || "").trim();
   if (!command) return "exec: command is required.";
   const { stdout, stderr, code } = await execRun.runShellCommand(command);
-  const out = stdout ? `stdout:\n${stdout}` : "";
-  const err = stderr ? `stderr:\n${stderr}` : "";
-  return [out, err, `exit code: ${code}`].filter(Boolean).join("\n") || "(no output)";
+  const maxExec = Math.min(
+    100_000,
+    Math.max(4000, parseInt(process.env.PICLAW_EXEC_TOOL_MAX_CHARS || "16000", 10) || 16000)
+  );
+  let out = stdout ? `stdout:\n${stdout}` : "";
+  let err = stderr ? `stderr:\n${stderr}` : "";
+  let combined = [out, err, `exit code: ${code}`].filter(Boolean).join("\n") || "(no output)";
+  if (combined.length > maxExec) {
+    const origLen = combined.length;
+    combined = combined.slice(0, maxExec) + `\n…[exec output truncated ${origLen - maxExec} chars]`;
+  }
+  return combined;
 }
 
 /** Memory tool: store or recall a fact in identity knowledge topic "memory". */
@@ -661,9 +698,17 @@ function executeReadFileTool(args) {
   const normalized = pathArg.replace(/^\/+/, "").split(path.sep).filter(Boolean).join(path.sep);
   if (!normalized) return "read_file: invalid path.";
   let fullPath = path.resolve(selfGuard.SAFE_ROOT, normalized);
+  const maxRead = Math.min(
+    200_000,
+    Math.max(8000, parseInt(process.env.PICLAW_READ_FILE_MAX_CHARS || "48000", 10) || 48000)
+  );
   if (selfGuard.isPathSafe(fullPath)) {
     try {
-      return fs.readFileSync(fullPath, "utf8");
+      const buf = fs.readFileSync(fullPath, "utf8");
+      if (buf.length > maxRead) {
+        return buf.slice(0, maxRead) + `\n…[read_file truncated ${buf.length - maxRead} chars]`;
+      }
+      return buf;
     } catch (e) {
       return "read_file error: " + (e.code || e.message);
     }
@@ -673,7 +718,11 @@ function executeReadFileTool(args) {
   const identitySafe = fullPath === identityRoot || fullPath.startsWith(identityRoot + path.sep);
   if (!identitySafe) return "read_file: path not under runtime or identity.";
   try {
-    return fs.readFileSync(fullPath, "utf8");
+    const buf = fs.readFileSync(fullPath, "utf8");
+    if (buf.length > maxRead) {
+      return buf.slice(0, maxRead) + `\n…[read_file truncated ${buf.length - maxRead} chars]`;
+    }
+    return buf;
   } catch (e) {
     return "read_file error: " + (e.code || e.message);
   }
@@ -720,10 +769,15 @@ async function buildChatReply(chatId, userMessage) {
     history = [];
     chatMemory.set(chatId, history);
   }
+  const histLen = getChatHistoryLen();
+  const historySlice = history.slice(-histLen).map((m) => ({
+    role: m.role,
+    content: capChatTurnText(m.content),
+  }));
   const messages = [
     { role: "system", content: systemPrompt },
-    ...history.slice(-CHAT_HISTORY_LEN),
-    { role: "user", content: userMessage },
+    ...historySlice,
+    { role: "user", content: capChatTurnText(userMessage) },
   ];
 
   async function executeTool(name, args) {
@@ -739,7 +793,7 @@ async function buildChatReply(chatId, userMessage) {
   const reply = await openaiChat.chatWithTools(messages, apiKey, executeTool);
   history.push({ role: "user", content: userMessage });
   history.push({ role: "assistant", content: reply });
-  if (history.length > CHAT_HISTORY_LEN) history.splice(0, history.length - CHAT_HISTORY_LEN);
+  if (history.length > histLen) history.splice(0, history.length - histLen);
   return reply;
 }
 

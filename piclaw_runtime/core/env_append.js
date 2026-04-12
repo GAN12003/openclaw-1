@@ -8,8 +8,28 @@ const ENV_PATH = path.join(__dirname, "..", ".env");
 /** Only PICLAW_* and OPENAI_* keys may be set via Telegram /set_key (see .env.example). */
 const ALLOWED_PREFIXES = ["PICLAW_", "OPENAI_"];
 
+/** Common typos / alternate names from docs → canonical env key (uppercase). */
+const SET_KEY_ALIASES = {
+  MOLTBOOK_API: "PICLAW_MOLTBOOK_TOKEN",
+  MOLTBOOK_TOKEN: "PICLAW_MOLTBOOK_TOKEN",
+  PICLAW_MOLTBOOK_API: "PICLAW_MOLTBOOK_TOKEN",
+  GITHUB_TOKEN: "PICLAW_GITHUB_PAT",
+  GH_TOKEN: "PICLAW_GITHUB_PAT",
+};
+
+/**
+ * Map user-typed key to the env key we persist (Telegram /set_key).
+ * @param {string} key
+ * @returns {string}
+ */
+function normalizeSetKeyName(key) {
+  const k = String(key || "").trim().toUpperCase();
+  if (!k) return "";
+  return SET_KEY_ALIASES[k] || k;
+}
+
 function isAllowedKey(key) {
-  const k = String(key || "").trim();
+  const k = normalizeSetKeyName(key);
   if (!/^[A-Z][A-Z0-9_]*$/.test(k)) return false;
   return ALLOWED_PREFIXES.some((p) => k.startsWith(p));
 }
@@ -84,7 +104,7 @@ function escapeEnvLine(value) {
  * @returns {Promise<{ ok: boolean; reason?: string }>}
  */
 async function appendEnv(key, value) {
-  const k = String(key || "").trim();
+  const k = normalizeSetKeyName(String(key || "").trim());
   if (!k) return { ok: false, reason: "missing key" };
   if (!isAllowedKey(k)) return { ok: false, reason: "key not allowed" };
 
@@ -129,4 +149,4 @@ async function appendEnv(key, value) {
   return { ok: true };
 }
 
-module.exports = { appendEnv, isAllowedKey, getAllowedKeys, ENV_PATH };
+module.exports = { appendEnv, isAllowedKey, getAllowedKeys, normalizeSetKeyName, ENV_PATH };

@@ -1,6 +1,7 @@
 "use strict";
 
 const TelegramBot = require("node-telegram-bot-api");
+const { normalizeSetKeyName } = require("../core/env_append");
 
 /** Hints when /status reports missing integrations (exact env key names for /set_key). */
 function buildIntegrationSetupHints(missing) {
@@ -8,7 +9,7 @@ function buildIntegrationSetupHints(missing) {
   const lines = [];
   if (m.has("moltbook")) {
     lines.push(
-      "• <b>Moltbook:</b> <code>/set_key PICLAW_MOLTBOOK_TOKEN</code> — send the token in your next message. (There is no <code>MOLTBOOK_API</code> key; Piclaw only reads <code>PICLAW_MOLTBOOK_TOKEN</code>.)"
+      "• <b>Moltbook:</b> <code>/set_key PICLAW_MOLTBOOK_TOKEN</code> — send the token in your next message. Alias: <code>MOLTBOOK_API</code> → same token."
     );
   }
   if (m.has("smtp")) {
@@ -532,7 +533,8 @@ function createBot(getStatusText, options = {}) {
   if (typeof options.isOwnerChat === "function" && typeof options.setPendingEnvKey === "function" && typeof options.appendEnv === "function") {
     bot.onText(/\/set_key\s+(\S+)/, async (msg, match) => {
       const chatId = msg.chat.id;
-      const key = (match[1] || "").trim();
+      const rawKey = (match[1] || "").trim();
+      const key = normalizeSetKeyName(rawKey);
       try {
         if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
           await bot.sendMessage(chatId, "Only the owner chat can set env keys.");
@@ -544,15 +546,23 @@ function createBot(getStatusText, options = {}) {
             [
               "Key not allowed. Names must be uppercase <code>PICLAW_*</code> or <code>OPENAI_*</code> (see <code>/setup</code>).",
               "",
-              "Moltbook token: <code>/set_key PICLAW_MOLTBOOK_TOKEN</code>",
-              "GitHub PAT: <code>/set_key PICLAW_GITHUB_PAT</code>",
+              "Moltbook token: <code>/set_key PICLAW_MOLTBOOK_TOKEN</code> (alias: <code>MOLTBOOK_API</code>)",
+              "GitHub PAT: <code>/set_key PICLAW_GITHUB_PAT</code> (alias: <code>GITHUB_TOKEN</code>)",
             ].join("\n"),
             { parse_mode: "HTML" }
           );
           return;
         }
         options.setPendingEnvKey(chatId, key);
-        await bot.sendMessage(chatId, "Send the value in your next message. I'll add it and delete your message.");
+        const aliasNote =
+          key && key !== rawKey.trim().toUpperCase()
+            ? `\n(Saving as <code>${key}</code> — normalized from <code>${rawKey}</code>.)`
+            : "";
+        await bot.sendMessage(
+          chatId,
+          "Send the value in your next message. I'll add it and delete your message." + aliasNote,
+          { parse_mode: "HTML" }
+        );
       } catch (err) {
         await bot.sendMessage(chatId, `Error: ${err.message}`);
       }

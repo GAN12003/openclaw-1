@@ -13,6 +13,13 @@ if [ -z "$key" ] || [ "$key" = "$line" ]; then
   echo "invalid line" >&2
   exit 1
 fi
+value="${line#*=}"
+ku=$(echo "$key" | tr '[:lower:]' '[:upper:]')
+case "$ku" in
+  MOLTBOOK_API|MOLTBOOK_TOKEN|PICLAW_MOLTBOOK_API) key="PICLAW_MOLTBOOK_TOKEN"; line="PICLAW_MOLTBOOK_TOKEN=${value}" ;;
+  GITHUB_TOKEN|GH_TOKEN) key="PICLAW_GITHUB_PAT"; line="PICLAW_GITHUB_PAT=${value}" ;;
+  *) key="$ku"; line="${key}=${value}" ;;
+esac
 case " $ALLOWED " in
   *" $key "*) ;;
   *) echo "key not allowed: $key" >&2; exit 1 ;;
