@@ -20,18 +20,18 @@ Workarounds:
 
 | Value     | Behavior |
 | --------- | -------- |
-| **`all`** | **Default when unset.** Every non-command text message in a `group` / `supergroup` can trigger the chat model (same as legacy behavior). |
-| **`mention`** | Only run the model when the user **@mentions this bot’s username**, uses a **text_mention** for this bot, or **replies to a message from this bot**. Private chats are unchanged (no mention required). |
+| **`mention`** | **Default when unset.** Only run the model when the user **@mentions this bot’s username**, uses a **text_mention** for this bot, or **replies to a message from this bot**. Other bots in the same group stay silent. Private chats are unchanged (no @ required). |
+| **`all`** | Every non-command text message in a `group` / `supergroup` can trigger the model — use only when **one** Piclaw bot is in the chat (legacy). |
 
-Set in `/opt/piclaw/.env` (or via **`/set_key`**):
+Default is already **`mention`** (no env line needed). To restore old behavior for a **single** bot in a group, set in `/opt/piclaw/.env` (or **`/set_key`**):
 
 ```bash
-PICLAW_TELEGRAM_GROUP_REPLY_MODE=mention
+PICLAW_TELEGRAM_GROUP_REPLY_MODE=all
 ```
 
 Then `sudo systemctl restart piclaw`.
 
-**Why use `mention`:** With several bots in one group, `all` can cause **every** bot to call the API on each message (cost, rate limits, duplicate answers). `mention` keeps untagged traffic **silent** (no LLM call, no reply).
+**Why `mention` is default:** With several bots in one group, **`all`** makes **every** bot call the API on each message (cost, rate limits, duplicate answers like three “I’m here” replies). **`mention`** keeps bots that were not @-addressed **silent** (no LLM call, no reply).
 
 ## Reply threading (user → model, bot → Telegram UI)
 
@@ -93,7 +93,7 @@ Restart **`piclaw`** after changing env.
 
 On each Pi, after deploy:
 
-1. Optional: `PICLAW_TELEGRAM_GROUP_REPLY_MODE=mention` for shared multi-bot groups.
+1. Default is `mention` for groups (no action). If you need every line to trigger chat with **one** bot only, set `PICLAW_TELEGRAM_GROUP_REPLY_MODE=all`.
 2. Optional: `PICLAW_SUPPRESS_EMBODIMENT_REMINDERS=1` to quiet integration nags.
 3. Optional: add the bot as **admin** in the group if you rely on **reaction** capture.
 4. `sudo systemctl restart piclaw`.

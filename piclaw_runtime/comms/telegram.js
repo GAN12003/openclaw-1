@@ -74,11 +74,16 @@ async function getTelegramBotSelf(bot) {
   return telegramBotSelfCache;
 }
 
-/** PICLAW_TELEGRAM_GROUP_REPLY_MODE=all|mention (default all). mention = only answer natural-language chat in group/supergroup when @bot or reply-to-bot. */
+/**
+ * PICLAW_TELEGRAM_GROUP_REPLY_MODE=all|mention
+ * Default **mention** when unset: in groups only the @-mentioned bot (or reply-to-that-bot) runs chat — avoids every Pi answering the same line.
+ * Set **all** if one bot in a group should see every message without @ (legacy).
+ */
 function getTelegramGroupReplyMode() {
-  return String(process.env.PICLAW_TELEGRAM_GROUP_REPLY_MODE || "all")
-    .trim()
-    .toLowerCase();
+  const raw = String(process.env.PICLAW_TELEGRAM_GROUP_REPLY_MODE || "").trim().toLowerCase();
+  if (raw === "all") return "all";
+  if (raw === "mention") return "mention";
+  return "mention";
 }
 
 /**
@@ -179,6 +184,7 @@ function createBot(getStatusText, options = {}) {
     },
   });
   console.log("[piclaw] Telegram polling started (allowed_updates includes message_reaction)");
+  console.log("[piclaw] Telegram group natural-chat mode:", getTelegramGroupReplyMode(), "(groups: mention = only @this_bot or reply-to-this-bot; set PICLAW_TELEGRAM_GROUP_REPLY_MODE=all for legacy)");
 
   // User-friendly command menu (shown when user types / in Telegram)
   bot.setMyCommands([
