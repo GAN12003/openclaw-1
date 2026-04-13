@@ -16,7 +16,9 @@
  * - PICLAW_HEALTH_LOG_MAX_BYTES — rotate active log when larger (default 5242880 = 5 MiB).
  * - PICLAW_HEALTH_ARCHIVE_MAX_FILES — keep at most this many rotated archives in logs/ (default 8); oldest deleted.
  * - PICLAW_HEALTH_ALERT_COOLDOWN_MS — min ms between alerts of same type (default 600000).
- * - PICLAW_HEALTH_CONNECTIVITY_LATENCY_MS — if positive, alert when AI API path latency exceeds this many ms (default 0 = off).
+ * - PICLAW_HEALTH_CONNECTIVITY_ALERT_ENABLE — Telegram when TCP/DNS online flips (default 0 = off; avoids spam / no AI host probe for alerts).
+ * - PICLAW_HEALTH_CONNECTIVITY_PROBE_FULL — 1 = DNS+TCP to OPENAI_BASE_URL host (NVIDIA path); 0 = DNS only (default 0, lighter, no “AI heartbeat”).
+ * - PICLAW_HEALTH_CONNECTIVITY_LATENCY_MS — if positive and probe full, alert when latency exceeds this ms (default 0 = off).
  */
 
 const fs = require("fs");
@@ -82,6 +84,8 @@ function startHostHealthWatch(deps) {
   const maxArchiveFiles = Math.max(0, Math.floor(envNum("PICLAW_HEALTH_ARCHIVE_MAX_FILES", 8)));
   const cooldownMs = Math.max(60_000, envNum("PICLAW_HEALTH_ALERT_COOLDOWN_MS", 600_000));
   const latencyAlertThreshold = Math.max(0, envNum("PICLAW_HEALTH_CONNECTIVITY_LATENCY_MS", 0));
+  const connectivityAlerts = envBool("PICLAW_HEALTH_CONNECTIVITY_ALERT_ENABLE", false);
+  const connectivityProbeFull = envBool("PICLAW_HEALTH_CONNECTIVITY_PROBE_FULL", false);
 
   const logPath = path.join(SAFE_ROOT, LOG_REL);
   const logDir = path.dirname(logPath);
@@ -189,7 +193,7 @@ function startHostHealthWatch(deps) {
     } catch (_) {}
 
     try {
-      const net = await connectivity.checkConnectivity({ full: true });
+      const net = await connectivity.checkConnectivity({ full: connectivityProbeFull });
       online = !!net.online;
       if (typeof net.dns_ms === "number" && Number.isFinite(net.dns_ms)) dnsMs = Math.round(net.dns_ms);
       if (typeof net.tcp_ms === "number" && Number.isFinite(net.tcp_ms)) tcpMs = Math.round(net.tcp_ms);
@@ -269,9 +273,13 @@ function startHostHealthWatch(deps) {
       );
     }
 
-    if (prevOnline !== null) {
+    if (connectivityAlerts && prevOnline !== null) {
       if (prevOnline && !online && canAlert("net_down")) {
-        notify("Host health: connectivity lost (TCP to AI API host failed).");
+        notify(
+          connectivityProbeFull
+            ? "Host health: connectivity lost (TCP to API host failed)."
+            : "Host health: connectivity lost (DNS to API host failed)."
+        );
       }
       if (!prevOnline && online && canAlert("net_up")) {
         notify("Host health: connectivity restored.");
@@ -280,6 +288,7 @@ function startHostHealthWatch(deps) {
     prevOnline = online;
 
     if (
+      connectivityProbeFull &&
       latencyAlertThreshold > 0 &&
       connectivityLatencyMs != null &&
       connectivityLatencyMs > latencyAlertThreshold &&

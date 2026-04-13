@@ -46,9 +46,9 @@ While generating a reply to natural-language chat, Piclaw sends **`sendChatActio
 
 ## Embodiment and integration reminders: `PICLAW_SUPPRESS_EMBODIMENT_REMINDERS`
 
-**Default when unset: reminders are on** (boot nag, goal-review “Thoughts”, agency `notify_owner` for integration items, motivation experiments that only notify about missing integrations).
+**Default when unset: reminders are suppressed** (no boot nag, no integration-only “Thoughts”, no agency/motivation pings for missing smtp/moltbook, etc.).
 
-Set to **`1`**, **`true`**, or **`yes`** to suppress:
+Set to **`0`**, **`false`**, **`no`**, or **`off`** to turn those reminders **back on**:
 
 1. The **45s boot** Telegram message about incomplete embodiment (missing integrations).
 2. **“Thoughts:”** lines from the goal review loop that come only from **`integration`**-type suggestions (other suggestion types still notify).
@@ -56,10 +56,12 @@ Set to **`1`**, **`true`**, or **`yes`** to suppress:
 4. **Motivation** candidate experiments whose only action is **notify_owner** about missing integrations.
 
 ```bash
-PICLAW_SUPPRESS_EMBODIMENT_REMINDERS=1
+PICLAW_SUPPRESS_EMBODIMENT_REMINDERS=0
 ```
 
-`/status` and **`/setup`** still show what is missing; this flag only reduces **unsolicited** Telegram nags.
+`/status` and **`/setup`** still show what is missing; suppression only reduces **unsolicited** Telegram nags.
+
+**Boot “I am awake…”:** off by default. Set **`PICLAW_NOTIFY_WAKE_TELEGRAM=1`** if you want the wake line on Telegram.
 
 ## Owner commands in groups
 
@@ -94,7 +96,7 @@ Restart **`piclaw`** after changing env.
 On each Pi, after deploy:
 
 1. Default is `mention` for groups (no action). If you need every line to trigger chat with **one** bot only, set `PICLAW_TELEGRAM_GROUP_REPLY_MODE=all`.
-2. Optional: `PICLAW_SUPPRESS_EMBODIMENT_REMINDERS=1` to quiet integration nags.
+2. Integration nags are **quiet by default**; set `PICLAW_SUPPRESS_EMBODIMENT_REMINDERS=0` if you want boot/Thoughts reminders back.
 3. Optional: add the bot as **admin** in the group if you rely on **reaction** capture.
 4. `sudo systemctl restart piclaw`.
 

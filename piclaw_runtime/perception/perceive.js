@@ -9,6 +9,13 @@
 const interpret = require("./interpret");
 const express = require("./express");
 
+function wakeNotifyTelegramEnabled() {
+  const v = String(process.env.PICLAW_NOTIFY_WAKE_TELEGRAM || "")
+    .trim()
+    .toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 function emit(type, payload) {
   if (!type || typeof type !== "string") return;
   const event = {
@@ -18,7 +25,7 @@ function emit(type, payload) {
   };
   const narrative = interpret.interpret(event);
   if (narrative) {
-    const opts = type === "wake" ? { notify: true } : {};
+    const opts = type === "wake" && wakeNotifyTelegramEnabled() ? { notify: true } : {};
     express.say(narrative, opts);
   }
 }

@@ -490,7 +490,7 @@ Test in Telegram: send **/status** and a plain message (e.g. **Hey**) to the bot
 
 ## Observability and maintenance (optional)
 
-**Host metrics** are written to `/opt/piclaw/logs/host-health.ndjson` by the running service. **Connectivity:** the 30s environment probe uses **DNS only** (fast). The host-health interval uses **DNS plus TCP** to port 443 on the AI API host for latency and stricter reachability (see `sensors/connectivity.js`).
+**Host metrics** are written to `/opt/piclaw/logs/host-health.ndjson` by the running service. **Connectivity:** the 30s environment probe uses **DNS only** (fast). The host-health interval also defaults to **DNS only**; set `PICLAW_HEALTH_CONNECTIVITY_PROBE_FULL=1` for **DNS plus TCP** to port 443 on the AI API host (latency + stricter reachability; see `sensors/connectivity.js`).
 
 **CLI (on the Pi, from `/opt/piclaw` or your clone):**
 
@@ -501,7 +501,9 @@ node scripts/resource-report.js
 
 **Telegram (owner):** `/resources`, `/logs_summary`.
 
-**Latency alert (optional):** set `PICLAW_HEALTH_CONNECTIVITY_LATENCY_MS` in env (milliseconds); when the rolling host-health sample exceeds it, Piclaw can notify (with the usual health alert cooldown).
+**Connectivity checks:** by default the host-health loop uses **DNS-only** reachability to the API host (no TCP each interval). Set `PICLAW_HEALTH_CONNECTIVITY_PROBE_FULL=1` if you want TCP + latency in the log (heavier; can flap on poor links). **Telegram** “connectivity lost/restored” is **off** unless you set `PICLAW_HEALTH_CONNECTIVITY_ALERT_ENABLE=1`.
+
+**Latency alert (optional):** set `PICLAW_HEALTH_CONNECTIVITY_LATENCY_MS` in env (milliseconds); when **probe full** is on and the rolling sample exceeds it, Piclaw can notify (with the usual health alert cooldown).
 
 **UART activity NDJSON (optional):** set `PICLAW_UART_ACTIVITY_LOG_ENABLE=1` to append rate-limited lines under `logs/uart-activity.ndjson` (see `hardware/uart_activity_log.js`).
 
