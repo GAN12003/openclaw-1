@@ -764,6 +764,7 @@ function buildChatSystemPrompt() {
         "## Stored knowledge (summary)",
         `learned_tools entries: ${nk}; memory entries: ${nm}; feedback_good (Telegram 👍 etc.): ${nfg}; feedback_bad (Telegram 👎): ${nfb}. Full text is not inlined by default — use memory_search (topics feedback_good,feedback_bad,memory) or memory_recall_semantic, or read_file on identity/knowledge/*.json.`,
         "Telegram reactions: ❤ → good idea in memory; 🔥 → long-term memory note; 👍/👎 → feedback topics; 👏 → approved-to-act note (see docs/TELEGRAM-MULTI-BOT.md).",
+        "When the user uses Telegram reply threading, their message may begin with a [Telegram reply thread: …] quoted block — treat it as explicit context for the following user text.",
         "Set PICLAW_MEMORY_PROMPT_MODE=full to restore previous inline JSON dumps (token-heavy)."
       );
     }

@@ -107,6 +107,63 @@ function isNaturalChatAddressedInGroup(msg, botUser) {
   return false;
 }
 
+/** When 1 (default), bot.sendMessage uses reply_to_message_id so replies appear threaded in Telegram. */
+function isChatReplyThreadingEnabled() {
+  const v = String(process.env.PICLAW_TELEGRAM_CHAT_REPLY_THREAD || "1")
+    .trim()
+    .toLowerCase();
+  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+}
+
+function formatQuotedNonTextHint(rt) {
+  if (!rt || typeof rt !== "object") return "[message]";
+  if (rt.photo) return "[photo, no caption in quote]";
+  if (rt.video) return "[video]";
+  if (rt.document) return "[document]";
+  if (rt.sticker) return "[sticker]";
+  if (rt.poll) return "[poll]";
+  if (rt.voice) return "[voice]";
+  if (rt.audio) return "[audio]";
+  if (rt.location) return "[location]";
+  return "[non-text message]";
+}
+
+/**
+ * Prefix the user turn so the model sees what Telegram message they replied to.
+ * @param {object} msg - incoming Message
+ * @param {object} botUser - getMe()
+ * @returns {{ prefix: string | null, replyToId: number | null }}
+ */
+function buildTelegramReplyPrefix(msg, botUser) {
+  const rt = msg.reply_to_message;
+  if (!rt) return { prefix: null, replyToId: null };
+  const chatId = msg.chat.id;
+  let preview = (rt.text || rt.caption || "").trim();
+  if (!preview) {
+    const sn = snippets.get(chatId, rt.message_id);
+    if (sn && sn.text) preview = sn.text;
+  }
+  if (!preview) preview = formatQuotedNonTextHint(rt);
+  const clipped = preview.slice(0, 1200).replace(/\r?\n/g, " ").trim();
+  const from = rt.from;
+  const myId = botUser && botUser.id;
+  const fromIsSelf = Boolean(from && from.is_bot && myId != null && from.id === myId);
+  const fromLabel = fromIsSelf
+    ? "this bot"
+    : from && from.username
+      ? `@${from.username}`
+      : from && from.first_name
+        ? String(from.first_name + (from.last_name ? ` ${from.last_name}` : ""))
+        : from && from.id != null
+          ? `user_id ${from.id}`
+          : "unknown sender";
+  const prefix =
+    `[Telegram reply thread: this message replies to message #${rt.message_id} from ${fromLabel}.]\n` +
+    `[Quoted message content:]\n${clipped}\n` +
+    `[End quote — the user's NEW text (answer in context of the quote) is below:]\n`;
+  return { prefix, replyToId: rt.message_id };
+}
+
 function createBot(getStatusText, options = {}) {
   const token = (process.env.PICLAW_TELEGRAM_TOKEN || "").trim();
   console.log("[piclaw] Telegram token length:", token.length);
@@ -219,6 +276,11 @@ function createBot(getStatusText, options = {}) {
         }
         console.log("[piclaw] Telegram: chat message, calling onChatMessage");
         try {
+          const { prefix: replyPrefix } = buildTelegramReplyPrefix(msg, botUser);
+          const userPayload = replyPrefix ? replyPrefix + text : text;
+          const threadOpts = isChatReplyThreadingEnabled()
+            ? { reply_to_message_id: msg.message_id }
+            : {};
           await bot.sendChatAction(chatId, "typing").catch(() => {});
           const typingEveryMs = 4000;
           const typingTimer = setInterval(() => {
@@ -226,13 +288,13 @@ function createBot(getStatusText, options = {}) {
           }, typingEveryMs);
           let reply;
           try {
-            reply = await options.onChatMessage(text, chatId);
+            reply = await options.onChatMessage(userPayload, chatId);
           } finally {
             clearInterval(typingTimer);
           }
           const out = reply != null ? String(reply).trim() : "";
           if (out) {
-            const sent = await bot.sendMessage(chatId, reply);
+            const sent = await bot.sendMessage(chatId, reply, threadOpts);
             try {
               if (sent && sent.message_id) {
                 snippets.record(chatId, sent.message_id, out, null);
@@ -243,12 +305,16 @@ function createBot(getStatusText, options = {}) {
             console.log("[piclaw] Telegram: chat returned empty reply");
             await bot.sendMessage(
               chatId,
-              "I did not get a non-empty reply to send. Try a shorter question or /status. If this repeats, check logs: journalctl -u piclaw -n 80"
+              "I did not get a non-empty reply to send. Try a shorter question or /status. If this repeats, check logs: journalctl -u piclaw -n 80",
+              threadOpts
             );
           }
         } catch (err) {
           console.error("[piclaw] chat error:", err.message);
-          await bot.sendMessage(chatId, `Error: ${err.message}`);
+          const threadOpts = isChatReplyThreadingEnabled()
+            ? { reply_to_message_id: msg.message_id }
+            : {};
+          await bot.sendMessage(chatId, `Error: ${err.message}`, threadOpts);
         }
       } else {
         console.log("[piclaw] Telegram: no onChatMessage handler");
@@ -872,6 +938,7 @@ function createBot(getStatusText, options = {}) {
           "/help — full command list",
           "",
           "Send any message to chat with me.",
+          "Reply to any message to give me thread context; I reply threaded by default.",
           "Reactions on messages (❤🔥👍👎👏) are recorded when enabled — see /help.",
         ];
         await bot.sendMessage(chatId, helpLines.join("\n"), { parse_mode: "HTML" });
@@ -914,6 +981,8 @@ function createBot(getStatusText, options = {}) {
       "/help — this message",
       "",
       "Send normal text to chat with me (identity + memory).",
+      "",
+      "<b>Reply threading</b>: reply to a specific message so I see quoted context in the model; my replies use Telegram reply threading by default (<code>PICLAW_TELEGRAM_CHAT_REPLY_THREAD</code>).",
       "",
       "<b>Reactions</b> (when enabled): ❤ good idea → memory · 🔥 long-term memory · 👍 good feedback · 👎 avoid / bad feedback · 👏 approved to act. Bot may need admin in groups to receive reaction updates.",
     ];

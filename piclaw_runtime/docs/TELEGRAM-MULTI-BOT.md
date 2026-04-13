@@ -33,6 +33,13 @@ Then `sudo systemctl restart piclaw`.
 
 **Why use `mention`:** With several bots in one group, `all` can cause **every** bot to call the API on each message (cost, rate limits, duplicate answers). `mention` keeps untagged traffic **silent** (no LLM call, no reply).
 
+## Reply threading (user → model, bot → Telegram UI)
+
+- When you **reply to a specific message** in Telegram, Piclaw prepends a short **quoted context block** (message id, sender label, and text when available) to the text sent to the model, so the agent answers **in context of that message**. If the quoted message had no text, Piclaw may use its **snippet cache** (recent messages it saw in that chat) or a placeholder like `[photo]`.
+- Piclaw’s chat replies use **`reply_to_message_id`** so they appear **threaded under your message** in the Telegram app (default on).
+
+Env: **`PICLAW_TELEGRAM_CHAT_REPLY_THREAD=1`** (default) keeps threaded sends; set **`0`** / **`false`** / **`off`** to send flat messages (the model still receives the reply-context prefix when you used Telegram reply).
+
 ## Typing indicator
 
 While generating a reply to natural-language chat, Piclaw sends **`sendChatAction(chat_id, "typing")`** before calling the model and **refreshes typing about every 4 seconds** until the reply is ready (Telegram typing expires after a few seconds).
