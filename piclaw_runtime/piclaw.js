@@ -653,6 +653,7 @@ function buildChatSystemPrompt() {
         })()
       : []),
     "## Tooling (you have these)",
+    "- Native tools only: use the model's function-calling API (exec, memory, …). Never paste XML or <tool_call>…</tool_call> blocks in plain text — users only see final prose; fake tool markup is wrong and wastes turns.",
     "- exec: YOU HAVE THIS. Run shell commands on this system. When the user asks to run a command, run something in the terminal, run code, list files, install something, or do anything that needs the shell, CALL the exec tool with that command. You will get stdout/stderr back. Call it; do not refuse.",
     "- read_file: read a file under the runtime or identity directory (path-safe). Use to read extensions code or docs.",
     "- memory: remember key value — store a fact. recall key — retrieve a fact. Optional category/tags on store.",

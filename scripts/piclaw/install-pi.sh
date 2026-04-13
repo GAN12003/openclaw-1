@@ -67,9 +67,10 @@ if [[ ! -d "$REPO_PATH/$RUNTIME_SRC_NAME" ]]; then
   exit 1
 fi
 
-echo "[install-pi] Installing system packages (git, gpiod, node, npm)..."
+echo "[install-pi] Installing system packages (git, gpiod, node, npm, Twitter extension Python libs)..."
 sudo apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git gpiod curl ca-certificates nodejs npm
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+  git gpiod curl ca-certificates nodejs npm python3-pip python3-aiohttp python3-aiofiles
 
 echo "[install-pi] Syncing $RUNTIME_SRC_NAME -> $INSTALL_ROOT"
 sudo mkdir -p "$INSTALL_ROOT"
@@ -92,12 +93,21 @@ echo "[install-pi] npm install --omit=dev"
 cd "$INSTALL_ROOT"
 npm install --omit=dev
 
+if [[ -f "$INSTALL_ROOT/extensions/twitter_api/requirements.txt" ]]; then
+  echo "[install-pi] pip install twitter_api requirements (optional)"
+  sudo pip3 install --break-system-packages -q -r "$INSTALL_ROOT/extensions/twitter_api/requirements.txt" 2>/dev/null \
+    || sudo pip3 install -q -r "$INSTALL_ROOT/extensions/twitter_api/requirements.txt" 2>/dev/null \
+    || true
+fi
+
 touch "$INSTALL_ROOT/.env"
 chmod 600 "$INSTALL_ROOT/.env" 2>/dev/null || true
 grep -qF OPENAI_BASE_URL= "$INSTALL_ROOT/.env" 2>/dev/null || echo "OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1" >> "$INSTALL_ROOT/.env"
 grep -qF OPENAI_CHAT_MODEL= "$INSTALL_ROOT/.env" 2>/dev/null || echo "OPENAI_CHAT_MODEL=z-ai/glm4.7" >> "$INSTALL_ROOT/.env"
 grep -qF PICLAW_GIT_CLONE_ROOT= "$INSTALL_ROOT/.env" 2>/dev/null || echo "PICLAW_GIT_CLONE_ROOT=$REPO_PATH" >> "$INSTALL_ROOT/.env"
 grep -qF PICLAW_IDENTITY_PATH= "$INSTALL_ROOT/.env" 2>/dev/null || echo "PICLAW_IDENTITY_PATH=$IDENTITY_ROOT" >> "$INSTALL_ROOT/.env"
+grep -qF PICLAW_TELEGRAM_GROUP_REPLY_MODE= "$INSTALL_ROOT/.env" 2>/dev/null || echo "PICLAW_TELEGRAM_GROUP_REPLY_MODE=mention" >> "$INSTALL_ROOT/.env"
+grep -qF PICLAW_CHAT_MAX_TOOL_ROUNDS= "$INSTALL_ROOT/.env" 2>/dev/null || echo "PICLAW_CHAT_MAX_TOOL_ROUNDS=12" >> "$INSTALL_ROOT/.env"
 
 SERVICE_SRC="$REPO_PATH/$RUNTIME_SRC_NAME/piclaw.service"
 if [[ ! -f "$SERVICE_SRC" ]]; then

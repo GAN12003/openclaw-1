@@ -49,6 +49,48 @@ function logTelegramIncomingPreview(text) {
   console.log("[piclaw] Telegram received:", JSON.stringify(t.slice(0, cap)) + tail);
 }
 
+/** Cached getMe() for group mention checks. */
+let telegramBotSelfCache = null;
+
+async function getTelegramBotSelf(bot) {
+  if (telegramBotSelfCache) return telegramBotSelfCache;
+  telegramBotSelfCache = await bot.getMe();
+  return telegramBotSelfCache;
+}
+
+/** PICLAW_TELEGRAM_GROUP_REPLY_MODE=all|mention (default all). mention = only answer natural-language chat in group/supergroup when @bot or reply-to-bot. */
+function getTelegramGroupReplyMode() {
+  return String(process.env.PICLAW_TELEGRAM_GROUP_REPLY_MODE || "all")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * For group/supergroup natural chat: require @username or reply to this bot when mode is mention.
+ * Private channels always addressed. Commands use onText and skip this path.
+ */
+function isNaturalChatAddressedInGroup(msg, botUser) {
+  const chatType = msg.chat && msg.chat.type;
+  if (chatType !== "group" && chatType !== "supergroup") return true;
+  if (getTelegramGroupReplyMode() !== "mention") return true;
+  const myId = botUser && botUser.id;
+  const un = ((botUser && botUser.username) || "").trim().toLowerCase();
+  const rt = msg.reply_to_message;
+  if (rt && rt.from && myId != null && rt.from.id === myId) return true;
+  const full = msg.text || msg.caption || "";
+  const lower = full.toLowerCase();
+  if (un && lower.includes("@" + un)) return true;
+  const ents = [...(msg.entities || []), ...(msg.caption_entities || [])];
+  for (const e of ents) {
+    if (e.type === "mention" && un) {
+      const slice = full.substring(e.offset, e.offset + e.length).toLowerCase();
+      if (slice === "@" + un) return true;
+    }
+    if (e.type === "text_mention" && e.user && myId != null && e.user.id === myId) return true;
+  }
+  return false;
+}
+
 function createBot(getStatusText, options = {}) {
   const token = (process.env.PICLAW_TELEGRAM_TOKEN || "").trim();
   console.log("[piclaw] Telegram token length:", token.length);
@@ -83,7 +125,7 @@ function createBot(getStatusText, options = {}) {
   });
 
   bot.on("message", async (msg) => {
-    const text = (msg.text || "").trim();
+    const text = (msg.text || msg.caption || "").trim();
     if (!text) return;
     const chatId = msg.chat.id;
     try {
@@ -119,8 +161,13 @@ function createBot(getStatusText, options = {}) {
         }
       }
       if (typeof options.onChatMessage === "function") {
+        const botUser = await getTelegramBotSelf(bot);
+        if (!isNaturalChatAddressedInGroup(msg, botUser)) {
+          return;
+        }
         console.log("[piclaw] Telegram: chat message, calling onChatMessage");
         try {
+          await bot.sendChatAction(chatId, "typing").catch(() => {});
           const reply = await options.onChatMessage(text, chatId);
           const out = reply != null ? String(reply).trim() : "";
           if (out) {

@@ -494,6 +494,19 @@ async function chatWithTools(messages, apiKey, executeTool) {
       continue;
     }
 
+    // Some models paste XML-style tool tags in `content` instead of using tool_calls; that would leak as a "code" reply.
+    const rawContent = msg.content != null ? String(msg.content) : "";
+    if (rawContent && /<\s*tool[\s_-]*call\b/i.test(rawContent)) {
+      messages.push({ role: "assistant", content: rawContent.trim() || null });
+      messages.push({
+        role: "user",
+        content:
+          "Do not output XML or <tool_call> markup. Use native function calling only (exec, memory, …). After tools return, summarize the outcome in plain text for the user.",
+      });
+      round++;
+      continue;
+    }
+
     return (
       content ||
       "(The model returned no text after tools finished. Try a simpler question, or raise PICLAW_CHAT_MAX_TOOL_ROUNDS in .env.)"

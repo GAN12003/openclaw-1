@@ -59,7 +59,7 @@ class TwitterAPIClient:
         data: Optional[Union[Dict[str, Any], aiohttp.FormData]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        return await self._request("POST", url, params=params, json=json_data, data=data)
+        return await self._request("POST", url, params=params, json_body=json_data, data=data)
 
     async def get(
         self,
@@ -71,7 +71,7 @@ class TwitterAPIClient:
         merged = dict(params or {})
         if json_data:
             merged.update(_flatten_graphql_query_params(json_data))
-        return await self._request("GET", url, params=merged or None, json=None, data=data)
+        return await self._request("GET", url, params=merged or None, json_body=None, data=data)
 
     async def _request(
         self,
@@ -79,7 +79,7 @@ class TwitterAPIClient:
         url: str,
         *,
         params: Optional[Dict[str, Any]] = None,
-        json: Optional[Dict[str, Any]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
         data: Any = None,
     ) -> Any:
         timeout = aiohttp.ClientTimeout(total=90)
@@ -90,7 +90,7 @@ class TwitterAPIClient:
                 url,
                 headers=headers,
                 params=params,
-                json=json,
+                json=json_body,
                 data=data,
             ) as resp:
                 text = await resp.text()
