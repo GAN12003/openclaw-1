@@ -228,6 +228,8 @@ journalctl -u piclaw -f
 
 Send **/status** to your bot. You should see Pi hostname, WiFi, and environment (not Windows).
 
+For **several bots in one group**, BotFather privacy, bot-to-bot limits, **`PICLAW_TELEGRAM_GROUP_REPLY_MODE`**, typing behavior, and **`PICLAW_SUPPRESS_EMBODIMENT_REMINDERS`**, see **[docs/TELEGRAM-MULTI-BOT.md](docs/TELEGRAM-MULTI-BOT.md)**.
+
 ---
 
 ## Setting env from Telegram (optional)

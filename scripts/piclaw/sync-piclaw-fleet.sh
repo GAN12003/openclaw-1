@@ -7,7 +7,7 @@
 #   bash scripts/piclaw/sync-piclaw-fleet.sh
 #
 # Branch: reads PICLAW_RUNTIME_BRANCH from the Pi's /opt/piclaw/.env (falls back to main).
-# Preserves /opt/piclaw/.env and state.json. Appends PICLAW_TELEGRAM_GROUP_REPLY_MODE=mention if missing.
+# Preserves /opt/piclaw/.env and state.json.
 
 set -euo pipefail
 
@@ -62,8 +62,6 @@ PIC_GROUP="$(stat -c '%G' /opt/piclaw 2>/dev/null || echo root)"
 sudo chown -R "$PIC_USER:$PIC_GROUP" /opt/piclaw
 cd /opt/piclaw
 sudo -u "$PIC_USER" npm install --omit=dev
-grep -qF PICLAW_TELEGRAM_GROUP_REPLY_MODE= /opt/piclaw/.env 2>/dev/null \
-  || echo "PICLAW_TELEGRAM_GROUP_REPLY_MODE=mention" | sudo tee -a /opt/piclaw/.env >/dev/null
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-aiohttp python3-aiofiles python3-pip 2>/dev/null || true
 if [[ -f /opt/piclaw/extensions/twitter_api/requirements.txt ]]; then

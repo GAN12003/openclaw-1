@@ -137,8 +137,15 @@ function runReview() {
     if (suggestionCount > 0) {
       try {
         const notifier = require("../events/notifier");
-        const msg = "Thoughts: " + suggestionList.map((s) => s.suggest).join(". ");
-        notifier.notify(msg);
+        const { isSuppressEmbodimentReminders } = require("../core/embodiment_reminders");
+        let listForNotify = suggestionList;
+        if (isSuppressEmbodimentReminders()) {
+          listForNotify = suggestionList.filter((s) => String(s.type || "").toLowerCase() !== "integration");
+        }
+        if (listForNotify.length > 0) {
+          const msg = "Thoughts: " + listForNotify.map((s) => s.suggest).join(". ");
+          notifier.notify(msg);
+        }
       } catch (_) {}
     }
   }

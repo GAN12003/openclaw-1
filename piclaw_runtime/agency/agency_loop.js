@@ -11,6 +11,7 @@
 const identityBridge = require("../identity_bridge");
 const policy = require("./policy");
 const perception = require("../perception/perceive");
+const { isSuppressEmbodimentReminders } = require("../core/embodiment_reminders");
 
 const DEFAULT_INTERVAL_MIN = 5;
 const PROBE_UART_COOLDOWN_MS = 6 * 60 * 60 * 1000;   // 6h
@@ -65,6 +66,13 @@ async function runCycle(options) {
   if (Array.isArray(suggestions) && suggestions.length > 0) {
     for (const suggestion of suggestions) {
       const actionType = suggestionToAction(suggestion);
+      if (
+        isSuppressEmbodimentReminders() &&
+        actionType === "notify_owner" &&
+        String(suggestion.type || "").toLowerCase() === "integration"
+      ) {
+        continue;
+      }
       if (!actionType || !policy.isAllowed(actionType)) continue;
       if (actionType === "probe_uart" && now - lastRun.probe_uart < PROBE_UART_COOLDOWN_MS) continue;
       if (actionType === "check_updates" && now - lastRun.check_updates < CHECK_UPDATES_COOLDOWN_MS) continue;
@@ -88,6 +96,7 @@ async function runCycle(options) {
     for (const intention of intentions.active) {
       const upkeep = INTENTION_UPKEEP[intention.id];
       if (!upkeep || !policy.isAllowed(upkeep.actionType)) continue;
+      if (isSuppressEmbodimentReminders() && intention.id === "prepare_integration_setup") continue;
       const last = lastRun[upkeep.lastRunKey] || 0;
       if (now - last < upkeep.cooldownMs) continue;
       const payload = { type: "intention", intentionId: intention.id, reason: intention.reason || "" };

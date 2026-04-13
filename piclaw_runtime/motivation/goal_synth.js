@@ -1,5 +1,7 @@
 "use strict";
 
+const { isSuppressEmbodimentReminders } = require("../core/embodiment_reminders");
+
 /**
  * Generate candidate experiments from current scan state. Builder-Researcher bias:
  * opportunism + experimentation; small reversible moves. Phase 1: only actions repo_scan, update_check, probe_uart, notify_owner.
@@ -21,7 +23,7 @@ function generateCandidates(scanState) {
     return idPrefix + String(seq++).padStart(3, "0");
   }
 
-  if (missing.length > 0) {
+  if (missing.length > 0 && !isSuppressEmbodimentReminders()) {
     candidates.push({
       id: nextId(),
       title: "Notify owner about missing integrations",

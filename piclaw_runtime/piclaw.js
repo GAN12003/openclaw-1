@@ -45,6 +45,7 @@ loadRuntimeDotEnv(path.join(__dirname, ".env"));
  */
 
 const identity = require("./core/identity");
+const embodimentReminders = require("./core/embodiment_reminders");
 const identityBridge = require("./identity_bridge");
 const watchdog = require("./core/watchdog");
 const health = require("./system/health");
@@ -1186,6 +1187,20 @@ async function main() {
       }
     }
     if (actionType === "notify_owner") {
+      if (embodimentReminders.isSuppressEmbodimentReminders()) {
+        const st = suggestion && suggestion.type;
+        const reason = String((suggestion && suggestion.reason) || "");
+        const sug = String((suggestion && suggestion.suggest) || "");
+        const intId = suggestion && suggestion.intentionId;
+        const isEmbodimentNag =
+          String(st || "").toLowerCase() === "integration" ||
+          (String(st || "").toLowerCase() === "intention" && intId === "prepare_integration_setup") ||
+          /integrations?\s+missing/i.test(reason) ||
+          /integrations?\s+missing/i.test(sug);
+        if (isEmbodimentNag) {
+          return { ok: false, message: "notify_owner suppressed (PICLAW_SUPPRESS_EMBODIMENT_REMINDERS)" };
+        }
+      }
       const text = (suggestion && suggestion.type === "intention" && suggestion.reason)
         ? "Intention: " + suggestion.reason
         : (suggestion && suggestion.suggest)
@@ -1218,6 +1233,7 @@ async function main() {
   let embodimentNotifiedThisBoot = false;
   setTimeout(() => {
     if (embodimentNotifiedThisBoot || !bot || !notifyChatId) return;
+    if (embodimentReminders.isSuppressEmbodimentReminders()) return;
     const intStatus = integrations.checkIntegrations();
     if (intStatus.missing && intStatus.missing.length > 0) {
       const list = intStatus.missing.map((m) => (m === "github" ? "GitHub (/github)" : m === "twitter" ? "Twitter (/twitter)" : m)).join(", ");

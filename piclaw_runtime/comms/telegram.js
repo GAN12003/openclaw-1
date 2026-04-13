@@ -168,7 +168,16 @@ function createBot(getStatusText, options = {}) {
         console.log("[piclaw] Telegram: chat message, calling onChatMessage");
         try {
           await bot.sendChatAction(chatId, "typing").catch(() => {});
-          const reply = await options.onChatMessage(text, chatId);
+          const typingEveryMs = 4000;
+          const typingTimer = setInterval(() => {
+            bot.sendChatAction(chatId, "typing").catch(() => {});
+          }, typingEveryMs);
+          let reply;
+          try {
+            reply = await options.onChatMessage(text, chatId);
+          } finally {
+            clearInterval(typingTimer);
+          }
           const out = reply != null ? String(reply).trim() : "";
           if (out) {
             await bot.sendMessage(chatId, reply);
