@@ -58,12 +58,37 @@ PICLAW_SUPPRESS_EMBODIMENT_REMINDERS=1
 
 Use **`PICLAW_TELEGRAM_OWNER_USER_IDS`** (comma-separated numeric user ids) and/or **`PICLAW_TELEGRAM_CHAT_ID`** so owner-only commands work when the chat id is not your private DM. See `.env.example` and `DEPLOY.md`.
 
+## Message reactions (emoji on any message in chat)
+
+Piclaw subscribes to **`message_reaction`** updates (polling `allowed_updates` includes it). In **groups**, the bot usually must be an **administrator** with permission to read messages so Telegram delivers reaction events.
+
+When someone **adds** a reaction (not removals), Piclaw matches the emoji to a **preset** and writes to identity knowledge:
+
+| Preset       | Default emojis | Stored as |
+| ------------ | -------------- | --------- |
+| `heart`      | ❤ ❤️           | `memory` — good idea, worth keeping |
+| `fire`       | 🔥             | `memory` — long-term / follow-up flag |
+| `thumbs_up`  | 👍 (+ skin tones) | `feedback_good` — adopt as positive feedback |
+| `thumbs_down`| 👎             | `feedback_bad` — avoid repeating; dispreferred |
+| `applause`   | 👏             | `memory` — operator approved to proceed now |
+
+**Context:** Piclaw keeps a short rolling cache of message text keyed by `chat_id` + `message_id` for messages it saw (incoming text/caption and outgoing chat replies). Reactions on older or unseen messages still create entries, but the snippet may say the text was not cached.
+
+**Env:**
+
+- **`PICLAW_TELEGRAM_REACTIONS_ENABLED`** — default **on** (`1`); set `0` / `false` / `off` to disable.
+- **`PICLAW_TELEGRAM_REACTIONS_OWNER_ONLY=1`** — only count reactions from users listed in **`PICLAW_TELEGRAM_OWNER_USER_IDS`** (same ids as owner commands). Default **off** (everyone in the chat).
+- **`PICLAW_TELEGRAM_REACTION_MAP`** — JSON object mapping extra emoji strings (or `custom:<id>`) to one of the preset names above.
+
+Restart **`piclaw`** after changing env.
+
 ## Fleet rollout checklist
 
 On each Pi, after deploy:
 
 1. Optional: `PICLAW_TELEGRAM_GROUP_REPLY_MODE=mention` for shared multi-bot groups.
 2. Optional: `PICLAW_SUPPRESS_EMBODIMENT_REMINDERS=1` to quiet integration nags.
-3. `sudo systemctl restart piclaw`.
+3. Optional: add the bot as **admin** in the group if you rely on **reaction** capture.
+4. `sudo systemctl restart piclaw`.
 
 Bulk SSH sync: `scripts/piclaw/sync-piclaw-fleet.sh` (see script header for env vars).

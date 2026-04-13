@@ -739,12 +739,20 @@ function buildChatSystemPrompt() {
     const memMode = (process.env.PICLAW_MEMORY_PROMPT_MODE || "minimal").trim().toLowerCase();
     const learned = identityBridge.loadKnowledge("learned_tools");
     const memoryFacts = identityBridge.loadKnowledge("memory");
+    let feedbackGood = {};
+    let feedbackBad = {};
+    try {
+      feedbackGood = identityBridge.loadKnowledge("feedback_good") || {};
+      feedbackBad = identityBridge.loadKnowledge("feedback_bad") || {};
+    } catch (_) {}
     const nk =
       typeof learned === "object" && learned !== null && learned !== undefined ? Object.keys(learned).length : 0;
     const nm =
       typeof memoryFacts === "object" && memoryFacts !== null && memoryFacts !== undefined
         ? Object.keys(memoryFacts).length
         : 0;
+    const nfg = typeof feedbackGood === "object" && feedbackGood ? Object.keys(feedbackGood).length : 0;
+    const nfb = typeof feedbackBad === "object" && feedbackBad ? Object.keys(feedbackBad).length : 0;
     if (memMode === "full") {
       const learnedStr = nk > 0 ? JSON.stringify(learned).slice(0, 900) : "(none)";
       const memoryStr = nm > 0 ? JSON.stringify(memoryFacts).slice(0, 600) : "(none)";
@@ -754,7 +762,8 @@ function buildChatSystemPrompt() {
       lines.push(
         "",
         "## Stored knowledge (summary)",
-        `learned_tools entries: ${nk}; memory entries: ${nm}. Full text is not inlined by default — use memory_search or memory_recall_semantic (if enabled), or read_file on identity/knowledge/*.json.`,
+        `learned_tools entries: ${nk}; memory entries: ${nm}; feedback_good (Telegram 👍 etc.): ${nfg}; feedback_bad (Telegram 👎): ${nfb}. Full text is not inlined by default — use memory_search (topics feedback_good,feedback_bad,memory) or memory_recall_semantic, or read_file on identity/knowledge/*.json.`,
+        "Telegram reactions: ❤ → good idea in memory; 🔥 → long-term memory note; 👍/👎 → feedback topics; 👏 → approved-to-act note (see docs/TELEGRAM-MULTI-BOT.md).",
         "Set PICLAW_MEMORY_PROMPT_MODE=full to restore previous inline JSON dumps (token-heavy)."
       );
     }
@@ -1136,6 +1145,15 @@ async function main() {
     getUsageReportHtml: () => buildUsageReportHtml(),
     getResourcesReportHtml: () => buildResourcesReportHtml(),
     getLogsSummaryHtml: () => buildLogsSummaryHtml(),
+    getReactionDeps: () => ({
+      identityBridge,
+      appendExperience: (line) => {
+        try {
+          identityBridge.appendExperience(line);
+        } catch (_) {}
+      },
+      isOwnerUser: (uid) => ownerMatches("", uid),
+    }),
   });
   if (bot) {
     log("Telegram bot started (responds to /status)");

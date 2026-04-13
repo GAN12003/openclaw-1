@@ -2,6 +2,22 @@
 
 const TelegramBot = require("node-telegram-bot-api");
 const { normalizeSetKeyName } = require("../core/env_append");
+const snippets = require("./telegram_snippets");
+const telegramReactions = require("./telegram_reactions");
+
+/** Polling must request message_reaction explicitly (Telegram default excludes it). */
+const POLLING_ALLOWED_UPDATES = [
+  "message",
+  "edited_message",
+  "callback_query",
+  "message_reaction",
+  "message_reaction_count",
+  "inline_query",
+  "chosen_inline_result",
+  "my_chat_member",
+  "chat_member",
+  "chat_join_request",
+];
 
 /** Hints when /status reports missing integrations (exact env key names for /set_key). */
 function buildIntegrationSetupHints(missing) {
@@ -98,8 +114,14 @@ function createBot(getStatusText, options = {}) {
     return null;
   }
 
-  const bot = new TelegramBot(token, { polling: true });
-  console.log("[piclaw] Telegram polling started");
+  const bot = new TelegramBot(token, {
+    polling: {
+      params: {
+        allowed_updates: POLLING_ALLOWED_UPDATES,
+      },
+    },
+  });
+  console.log("[piclaw] Telegram polling started (allowed_updates includes message_reaction)");
 
   // User-friendly command menu (shown when user types / in Telegram)
   bot.setMyCommands([
@@ -124,7 +146,37 @@ function createBot(getStatusText, options = {}) {
     console.error("[piclaw] Telegram polling_error:", err.message);
   });
 
+  bot.on("edited_message", (msg) => {
+    try {
+      const raw = (msg.text || msg.caption || "").trim();
+      if (raw) {
+        snippets.record(msg.chat.id, msg.message_id, raw, msg.from && msg.from.id);
+      }
+    } catch (_) {}
+  });
+
+  bot.on("message_reaction", (upd) => {
+    try {
+      if (typeof options.getReactionDeps !== "function") return;
+      const deps = options.getReactionDeps();
+      if (!deps || !deps.identityBridge) return;
+      telegramReactions.handleMessageReaction(upd, {
+        identityBridge: deps.identityBridge,
+        appendExperience: deps.appendExperience,
+        isOwnerUser: deps.isOwnerUser,
+      });
+    } catch (e) {
+      console.warn("[piclaw] message_reaction:", (e && e.message) || e);
+    }
+  });
+
   bot.on("message", async (msg) => {
+    try {
+      const rawSnip = (msg.text || msg.caption || "").trim();
+      if (rawSnip) {
+        snippets.record(msg.chat.id, msg.message_id, rawSnip, msg.from && msg.from.id);
+      }
+    } catch (_) {}
     const text = (msg.text || msg.caption || "").trim();
     if (!text) return;
     const chatId = msg.chat.id;
@@ -180,7 +232,12 @@ function createBot(getStatusText, options = {}) {
           }
           const out = reply != null ? String(reply).trim() : "";
           if (out) {
-            await bot.sendMessage(chatId, reply);
+            const sent = await bot.sendMessage(chatId, reply);
+            try {
+              if (sent && sent.message_id) {
+                snippets.record(chatId, sent.message_id, out, null);
+              }
+            } catch (_) {}
             console.log("[piclaw] Telegram: sent chat reply (" + String(reply).length + " chars)");
           } else {
             console.log("[piclaw] Telegram: chat returned empty reply");
@@ -815,6 +872,7 @@ function createBot(getStatusText, options = {}) {
           "/help — full command list",
           "",
           "Send any message to chat with me.",
+          "Reactions on messages (❤🔥👍👎👏) are recorded when enabled — see /help.",
         ];
         await bot.sendMessage(chatId, helpLines.join("\n"), { parse_mode: "HTML" });
       } else if (action === "chat") {
@@ -856,6 +914,8 @@ function createBot(getStatusText, options = {}) {
       "/help — this message",
       "",
       "Send normal text to chat with me (identity + memory).",
+      "",
+      "<b>Reactions</b> (when enabled): ❤ good idea → memory · 🔥 long-term memory · 👍 good feedback · 👎 avoid / bad feedback · 👏 approved to act. Bot may need admin in groups to receive reaction updates.",
     ];
     await bot.sendMessage(chatId, helpLines.join("\n"), { parse_mode: "HTML" });
   });
