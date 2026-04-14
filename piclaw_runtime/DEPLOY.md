@@ -4,7 +4,7 @@ Copy **only** the runtime to the Pi (not the whole OpenClaw repo).
 
 ## Automated install (Linux Pi, clone + systemd + boot)
 
-From the Pi, after SSH and GitHub deploy keys (or HTTPS) are set:
+From the Pi, after SSH and GitHub deploy keys (or HTTPS) are set. To SSH from your PC **without the Pi user password**, see **[docs/SSH-PASSWORDLESS-PI.md](docs/SSH-PASSWORDLESS-PI.md)**.
 
 ```bash
 curl -fsSL -o /tmp/install-pi.sh https://raw.githubusercontent.com/GAN12003/openclaw-1/main/scripts/piclaw/install-pi.sh

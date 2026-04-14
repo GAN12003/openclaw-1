@@ -74,7 +74,7 @@ ssh -T git@github.com-workspaces
 
 ## deAgent04 quickstart (new Pi)
 
-1. **SSH:** `ssh gan12003@deagent04` (or your hostname).
+1. **SSH:** `ssh gan12003@deagent04` (or your hostname). For **passwordless** login from your PC (so scripts and Cursor’s terminal can use `ssh` without the Pi account password), see **[SSH-PASSWORDLESS-PI.md](SSH-PASSWORDLESS-PI.md)** first.
 2. **Deploy key pairs:** from your dev PC (repo root): `scp scripts/piclaw/deagent04-print-deploy-keys.sh gan12003@deagent04:~/` then on the Pi `chmod +x ~/deagent04-print-deploy-keys.sh && bash ~/deagent04-print-deploy-keys.sh`. Register each **public** line on GitHub: **`openclaw-1`** → first key, **`workspaces`** → second key (**Allow write access** on both).
 3. **Host aliases:** `scp scripts/piclaw/pi-ssh-github-snippet.conf gan12003@deagent04:~/` then on the Pi: `mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat ~/pi-ssh-github-snippet.conf >> ~/.ssh/config`. Run `ssh-keyscan -H github.com >> ~/.ssh/known_hosts` if needed. Verify: `ssh -T git@github.com-piclaw` and `ssh -T git@github.com-workspaces`.
 4. **Install runtime + systemd:** follow [DEPLOY.md automated install](../DEPLOY.md#automated-install-linux-pi-clone--systemd--boot) so `piclaw` is under `/opt/piclaw` and enabled at boot (first run can use `main`; `install-pi.sh` falls back if `deagent04-runtime` is missing).
