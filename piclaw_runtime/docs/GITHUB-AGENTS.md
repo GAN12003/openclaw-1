@@ -54,7 +54,7 @@ For **each** public key below: repo → **Settings** → **Deploy keys** → **A
 | deAgent01 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPNgl8iVViq1bUJgeu2XwV0fIxhdQPJaK1e7qPLQGaMf deploy-deAgent01-openclaw-1` |
 | deAgent02 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICRNBUZ4cd8MsVKr4uNG/7+EXqGsdrXG1cRH1sTDqUey deploy-deAgent02-openclaw-1` |
 | deAgent03 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJYNVREOaxLEM3/CK9FTG+zRkFoWOeOML6pQ2mim5rHl deploy-deAgent03-openclaw-1` |
-| deAgent04 | On the Pi run `scripts/piclaw/deagent04-print-deploy-keys.sh` (copy from laptop with `scp` if needed); paste the **piclaw** `.pub` line into this table when you document the fleet. |
+| deAgent04 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGI3IXKJ//cxTLuFSTHvNQNYu+EZfdUlGmSnXMlMRDyY deploy-deAgent04-openclaw-1` |
 
 ### Repo `workspaces`
 
@@ -63,7 +63,7 @@ For **each** public key below: repo → **Settings** → **Deploy keys** → **A
 | deAgent01 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMoZb3glBAt2HqXBM2iPwbUOtCI+mHZyGMZxaXuUJiZt deploy-deAgent01-workspaces` |
 | deAgent02 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDubBWivpD0tavuzZybZPoJ0F5J2nkKm0IAwXWap4B52 deploy-deAgent02-workspaces` |
 | deAgent03 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKfkbJhIPHcLnobz4cbzVK/xYbikqcS/h38XU9DFHpRe deploy-deAgent03-workspaces` |
-| deAgent04 | Same script prints a second line — the **workspaces** deploy key; paste it here when documenting. |
+| deAgent04 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG0gvw31vPPGqyKYT6XaBmitKceZC1rhAkHJ1ZmVPBH4 deploy-deAgent04-workspaces` |
 
 After adding keys, test from the Pi:
 
