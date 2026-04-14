@@ -152,6 +152,7 @@ Piclaw does **not** use Twitter API keys. It uses **browser cookies** only: `PIC
 |------------|---------------------|-------------------------|
 | deAgent02 | @B4se_Sat0shi | `PICLAW_TWITTER_AUTH_TOKEN`, `PICLAW_TWITTER_CT0`, `PICLAW_TWITTER_SCREEN_NAME=B4se_Sat0shi` |
 | deAgent03 | @yourcompanylist | `PICLAW_TWITTER_AUTH_TOKEN`, `PICLAW_TWITTER_CT0`, `PICLAW_TWITTER_SCREEN_NAME=yourcompanylist` |
+| deAgent04 | _(optional; set later)_ | Same three vars when you add X for this node |
 
 After editing env: `sudo systemctl restart piclaw`. Use `/twitter` on Telegram to verify read-only status for that node.
 

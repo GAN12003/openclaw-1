@@ -2,7 +2,7 @@
 # Roll Piclaw runtime to each Pi over SSH: git pull agent branch, rsync into /opt/piclaw, deps, restart.
 #
 # Usage (from a machine with SSH keys to the Pis):
-#   export PICLAW_SSH_HOSTS="gan12003@deagent01 gan12003@deagent02 gan12003@deagent03"
+#   export PICLAW_SSH_HOSTS="gan12003@deagent01 gan12003@deagent02 gan12003@deagent03 gan12003@deagent04"
 #   export PICLAW_REPO_CLONE='/home/gan12003/src/openclaw-1'   # same on every host, or omit for default
 #   bash scripts/piclaw/sync-piclaw-fleet.sh
 #

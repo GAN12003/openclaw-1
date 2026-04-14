@@ -20,8 +20,8 @@ Each Pi uses **two SSH deploy key pairs** (ed25519): one for **openclaw-1** (run
 
 | Purpose | Repo | Branch names (match hostname short name) |
 |--------|------|---------------------------------------------|
-| Runtime (piclaw code; merge `main` when operators ship fixes) | `GAN12003/openclaw-1` | `deagent01-runtime`, `deagent02-runtime`, `deagent03-runtime` |
-| Agent workspace (notes, logs, memory; safe to reset) | `GAN12003/workspaces` | `deagent01-workspace`, `deagent02-workspace`, `deagent03-workspace` |
+| Runtime (piclaw code; merge `main` when operators ship fixes) | `GAN12003/openclaw-1` | `deagent01-runtime` … `deagent04-runtime` |
+| Agent workspace (notes, logs, memory; safe to reset) | `GAN12003/workspaces` | `deagent01-workspace` … `deagent04-workspace` |
 
 **Runtime repo deploy keys:** must have **Allow write access** if the Pi should **`git push`** its runtime branch. If keys are read-only, `git pull` still works; push will fail with `marked as read only` — edit each deploy key on `openclaw-1` and enable write.
 
@@ -54,6 +54,7 @@ For **each** public key below: repo → **Settings** → **Deploy keys** → **A
 | deAgent01 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPNgl8iVViq1bUJgeu2XwV0fIxhdQPJaK1e7qPLQGaMf deploy-deAgent01-openclaw-1` |
 | deAgent02 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICRNBUZ4cd8MsVKr4uNG/7+EXqGsdrXG1cRH1sTDqUey deploy-deAgent02-openclaw-1` |
 | deAgent03 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJYNVREOaxLEM3/CK9FTG+zRkFoWOeOML6pQ2mim5rHl deploy-deAgent03-openclaw-1` |
+| deAgent04 | On the Pi run `scripts/piclaw/deagent04-print-deploy-keys.sh` (copy from laptop with `scp` if needed); paste the **piclaw** `.pub` line into this table when you document the fleet. |
 
 ### Repo `workspaces`
 
@@ -62,6 +63,7 @@ For **each** public key below: repo → **Settings** → **Deploy keys** → **A
 | deAgent01 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMoZb3glBAt2HqXBM2iPwbUOtCI+mHZyGMZxaXuUJiZt deploy-deAgent01-workspaces` |
 | deAgent02 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDubBWivpD0tavuzZybZPoJ0F5J2nkKm0IAwXWap4B52 deploy-deAgent02-workspaces` |
 | deAgent03 | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKfkbJhIPHcLnobz4cbzVK/xYbikqcS/h38XU9DFHpRe deploy-deAgent03-workspaces` |
+| deAgent04 | Same script prints a second line — the **workspaces** deploy key; paste it here when documenting. |
 
 After adding keys, test from the Pi:
 
@@ -69,6 +71,16 @@ After adding keys, test from the Pi:
 ssh -T git@github.com-piclaw
 ssh -T git@github.com-workspaces
 ```
+
+## deAgent04 quickstart (new Pi)
+
+1. **SSH:** `ssh gan12003@deagent04` (or your hostname).
+2. **Deploy key pairs:** from your dev PC (repo root): `scp scripts/piclaw/deagent04-print-deploy-keys.sh gan12003@deagent04:~/` then on the Pi `chmod +x ~/deagent04-print-deploy-keys.sh && bash ~/deagent04-print-deploy-keys.sh`. Register each **public** line on GitHub: **`openclaw-1`** → first key, **`workspaces`** → second key (**Allow write access** on both).
+3. **Host aliases:** `scp scripts/piclaw/pi-ssh-github-snippet.conf gan12003@deagent04:~/` then on the Pi: `mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat ~/pi-ssh-github-snippet.conf >> ~/.ssh/config`. Run `ssh-keyscan -H github.com >> ~/.ssh/known_hosts` if needed. Verify: `ssh -T git@github.com-piclaw` and `ssh -T git@github.com-workspaces`.
+4. **Install runtime + systemd:** follow [DEPLOY.md automated install](../DEPLOY.md#automated-install-linux-pi-clone--systemd--boot) so `piclaw` is under `/opt/piclaw` and enabled at boot (first run can use `main`; `install-pi.sh` falls back if `deagent04-runtime` is missing).
+5. **Branches:** from `~/src/openclaw-1` (or your `PICLAW_GIT_CLONE_ROOT`), run `bash scripts/piclaw/agent-git-bootstrap.sh` — uses hostname → `deagent04-runtime` / `deagent04-workspace`. Re-run `install-pi.sh` with `PICLAW_RUNTIME_BRANCH=deagent04-runtime` once those branches exist, or use the rsync + restart block below.
+6. **Secrets (never in chat):** in `/opt/piclaw/.env` (and optionally `/etc/piclaw.env` for systemd): **new** `PICLAW_TELEGRAM_TOKEN` (revoke any leaked token first), `PICLAW_TELEGRAM_CHAT_ID`, `OPENAI_API_KEY` (NVIDIA path for GLM 4.7 is already defaulted by `install-pi.sh`), optional `PICLAW_GITHUB_PAT`. `chmod 600` the env file. `sudo systemctl restart piclaw`.
+7. **Profile:** optional `bash scripts/piclaw/set-agent-self-profile.sh deAgent04 deAgent04@yopmail.com '<image-id>'` from the repo clone after identity exists.
 
 ## Sync runtime to `/opt/piclaw` after `git pull`
 
