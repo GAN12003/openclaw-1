@@ -54,6 +54,13 @@ for m in "${MIDS[@]}"; do
   fi
 done
 
+# postinst can invoke systemd-sysusers; in chroot it may fail (basic.conf / dbus); stub only if unconfigured
+if [[ -e /usr/bin/systemd-sysusers && ! -L /usr/bin/systemd-sysusers ]]; then
+  cp -a /usr/bin/systemd-sysusers /usr/bin/systemd-sysusers.dpkg-orig
+  ln -sf /bin/true /usr/bin/systemd-sysusers
+  echo "Shim: /usr/bin/systemd-sysusers -> /bin/true (skips static user create in chroot)"
+fi
+
 # If adduser is too old for exim4-config postinst (Unknown option: allow-bad-names), try refresh.
 # Ignore failure if dpkg is broken.
 set +e
