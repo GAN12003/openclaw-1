@@ -35,6 +35,25 @@ fi
 mkdir -p /run/systemd/system /run/dbus
 chmod 0755 /run /run/dbus 2>/dev/null || true
 
+echo
+echo "=== systemd postinst shims (no PID1 in NetHunter chroot) ==="
+# systemd's postinst runs systemctl/systemd-machine-id-setup; they cannot talk to a real init here.
+if [[ -e /usr/bin/systemctl ]] && [[ ! -L /usr/bin/systemctl ]]; then
+  cp -a /usr/bin/systemctl /usr/bin/systemctl.dpkg-orig
+  ln -sf /bin/true /usr/bin/systemctl
+  echo "Shim: /usr/bin/systemctl -> /bin/true  (backup: /usr/bin/systemctl.dpkg-orig)"
+elif [[ -L /usr/bin/systemctl ]]; then
+  echo "Shim: /usr/bin/systemctl already symlink -> $(readlink /usr/bin/systemctl 2>/dev/null || true)"
+fi
+MIDS=(/usr/bin/systemd-machine-id-setup /lib/systemd/systemd-machine-id-setup)
+for m in "${MIDS[@]}"; do
+  if [[ -e "$m" && ! -L "$m" ]]; then
+    cp -a "$m" "${m}.dpkg-orig"
+    ln -sf /bin/true "$m"
+    echo "Shim: $m -> /bin/true"
+  fi
+done
+
 # If adduser is too old for exim4-config postinst (Unknown option: allow-bad-names), try refresh.
 # Ignore failure if dpkg is broken.
 set +e
@@ -74,9 +93,9 @@ c3=$?
 set -e
 
 echo
-if [[ "$c1" -ne 0 || "$c2" -ne 0 || "$c3" -ne 0 ]]; then
-  echo "chroot-dpkg-repair: finished with errors; see dpkg --audit and logs above."
-  echo "If systemd still will not configure, this chroot may need fake systemctl (last resort) — read comments in 00-RUN-ORDER."
+if [[ "$c3" -ne 0 ]]; then
+  echo "chroot-dpkg-repair: dpkg --configure -a still failing (c1=$c1 c2=$c2 c3=$c3). See: dpkg --audit"
+  echo "Re-run this script after shims; if exim4-config/adduser still errors, use exim+msmtp notes in script body."
   exit 1
 fi
 echo "chroot-dpkg-repair: dpkg path looks clear. Run: ./chroot-audit.sh"
