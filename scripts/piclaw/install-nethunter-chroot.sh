@@ -19,6 +19,20 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
+echo "=== [piclaw] wait for dpkg lock (up to 120s) ==="
+if command -v fuser >/dev/null 2>&1; then
+  for _ in {1..60}; do
+    if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+      echo "… lock busy, waiting"
+      sleep 2
+    else
+      break
+    fi
+  done
+else
+  sleep 8
+fi
+
 STAGING="${1:-/opt/piclaw-staging}"
 INSTALL="/opt/piclaw"
 IDENTITY="/opt/piclaw_identity"
@@ -34,14 +48,24 @@ if [[ ! -f "$STAGING/piclaw.js" || ! -f "$STAGING/package.json" ]]; then
 fi
 
 echo "=== [piclaw] apt keyring + update (Kali rolling) ==="
-apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg 2>/dev/null || true
-apt-get install -y -qq --reinstall kali-archive-keyring 2>/dev/null || true
+apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg dirmngr 2>/dev/null || true
 install -d -m 0755 /etc/apt/trusted.gpg.d
-if [[ ! -f /etc/apt/trusted.gpg.d/kali-archive-keyring.gpg ]] && [[ ! -f /etc/apt/trusted.gpg.d/archive.kali.org.gpg ]]; then
+# Missing subkey ED65462EC8D5E4C5 breaks InRelease; fetch from keyserver
+if [[ ! -f /etc/apt/trusted.gpg.d/kali-rolling-missing.gpg ]]; then
+  _gh="$(mktemp -d)"
+  export GNUPGHOME="$_gh"
+  gpg --batch --keyserver keyserver.ubuntu.com --recv-keys ED65462EC8D5E4C5 2>/dev/null || true
+  gpg --batch --export ED65462EC8D5E4C5 2>/dev/null | gpg --dearmor -o /etc/apt/trusted.gpg.d/kali-rolling-missing.gpg 2>/dev/null || true
+  rm -rf "$_gh"
+  unset GNUPGHOME
+fi
+if [[ ! -f /etc/apt/trusted.gpg.d/archive.kali.org.gpg ]]; then
   curl -fsSL https://archive.kali.org/archive-key.asc 2>/dev/null | gpg --dearmor -o /etc/apt/trusted.gpg.d/archive.kali.org.gpg 2>/dev/null \
     || wget -qO- https://archive.kali.org/archive-key.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/archive.kali.org.gpg
 fi
-apt-get update -qq || { echo "apt-get update failed (check keys / network in chroot)" >&2; exit 1; }
+apt-get update -qq || { echo "apt-get update still failed — fix GPG in chroot, then re-run" >&2; exit 1; }
+apt-get install -y -qq --reinstall kali-archive-keyring 2>/dev/null || true
+apt-get update -qq
 
 echo "=== [piclaw] apt: node, npm, tools ==="
 apt-get install -y -qq --no-install-recommends \
