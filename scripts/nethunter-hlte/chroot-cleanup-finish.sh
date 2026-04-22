@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Run after removals: repair dpkg, fix deps, autoremove, clear apt cache. Safe to re-run.
+# If systemd/exim block everything, run ./chroot-dpkg-repair.sh first.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+export SYSTEMD_OFFLINE=1
 
 set +e
 dpkg --configure -a

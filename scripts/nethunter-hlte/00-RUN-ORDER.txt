@@ -11,6 +11,14 @@ NetHunter hlte: minimal chroot — run in this order (inside bootkali)
 
 Restore: rollback is manual and risky. A snapshot is for reference; do not dpkg --set-selections on a half-broken chroot without reading apt/dpkg error output first. Prefer: repair with chroot-cleanup-finish.sh, then remove fewer packages.
 
+When dpkg is stuck in a loop (your log):
+- systemd: "Failed to enable units" / "Protocol driver not attached" — expected in a chroot (no PID1). Run chroot-dpkg-repair.sh first (policy-rc.d, SYSTEMD_OFFLINE, machine-id).
+- exim4-config: adduser "Unknown option: allow-bad-names" — tooling mismatch; chroot-dpkg-repair tries adduser/passwd refresh; if it still fails, purge exim4-* and use msmtp-mta or no local MTA (read chroot-dpkg-repair.sh footer).
+- Last resort (only if still stuck): ln -sf /bin/true /usr/bin/systemctl && dpkg --configure -a  then REMOVE that symlink if a real systemctl exists — usually not needed on NetHunter.
+
+0z) chroot-dpkg-repair.sh
+   (Unstick systemd+deps and exim round; then chroot-cleanup-finish.sh)
+
 1) chroot-audit.sh
    (Note disk free, dpkg --audit, largest packages.)
 
