@@ -33,8 +33,17 @@ if [[ ! -f "$STAGING/piclaw.js" || ! -f "$STAGING/package.json" ]]; then
   exit 1
 fi
 
+echo "=== [piclaw] apt keyring + update (Kali rolling) ==="
+apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg 2>/dev/null || true
+apt-get install -y -qq --reinstall kali-archive-keyring 2>/dev/null || true
+install -d -m 0755 /etc/apt/trusted.gpg.d
+if [[ ! -f /etc/apt/trusted.gpg.d/kali-archive-keyring.gpg ]] && [[ ! -f /etc/apt/trusted.gpg.d/archive.kali.org.gpg ]]; then
+  curl -fsSL https://archive.kali.org/archive-key.asc 2>/dev/null | gpg --dearmor -o /etc/apt/trusted.gpg.d/archive.kali.org.gpg 2>/dev/null \
+    || wget -qO- https://archive.kali.org/archive-key.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/archive.kali.org.gpg
+fi
+apt-get update -qq || { echo "apt-get update failed (check keys / network in chroot)" >&2; exit 1; }
+
 echo "=== [piclaw] apt: node, npm, tools ==="
-apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
   nodejs npm git ca-certificates curl python3-pip \
   || { echo "apt install failed" >&2; exit 1; }
