@@ -7,17 +7,23 @@
 #   ./chroot-minimize.sh --profile safe|minimal
 #   ./chroot-minimize.sh --list /path/to/list
 #   ./chroot-minimize.sh --profile minimal --apply
+#   ./chroot-minimize.sh --apply --autoremove
 #   CHROOT_MINIMIZE_LIST=/path ./chroot-minimize.sh --apply
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIST_FILE="${CHROOT_MINIMIZE_LIST:-}"
 APPLY=0
+AUTOREMOVE=0
+if [[ "${CHROOT_MINIMIZE_AUTOREMOVE:-0}" == "1" ]]; then
+  AUTOREMOVE=1
+fi
 
 usage() {
-  echo "Usage: $0 [--profile safe|minimal] [--list path] [--apply]" >&2
+  echo "Usage: $0 [--profile safe|minimal] [--list path] [--apply] [--autoremove]" >&2
+  echo "  Default: no autoremove (half-broken dpkg can propose huge purges; repair dpkg first)." >&2
   echo "  Default profile: safe ($SCRIPT_DIR/packages-headless-remove.list)" >&2
-  echo "  Env: CHROOT_MINIMIZE_LIST=path, CHROOT_MINIMIZE_APPLY=1" >&2
+  echo "  Env: CHROOT_MINIMIZE_LIST=, CHROOT_MINIMIZE_APPLY=1, CHROOT_MINIMIZE_AUTOREMOVE=1" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -52,6 +58,10 @@ while [[ $# -gt 0 ]]; do
           ;;
       esac
       shift 2
+      ;;
+    --autoremove)
+      AUTOREMOVE=1
+      shift
       ;;
     -h | --help)
       usage
@@ -101,18 +111,25 @@ printf ' %s\n' "${to_remove[@]}"
 echo
 
 if [[ "$APPLY" -ne 1 ]]; then
-  echo "DRY-RUN: apt simulation only. To apply: $0 --profile <safe|minimal> --apply (or set CHROOT_MINIMIZE_APPLY=1 with CHROOT_MINIMIZE_LIST=...)"
+  echo "DRY-RUN: apt simulation only. To apply: $0 --profile <safe|minimal> --apply [--autoremove]"
+  if [[ "$AUTOREMOVE" -ne 1 ]]; then
+    echo "Note: autoremove simulation SKIPPED (pass --autoremove to include; risky on half-configured dpkg)."
+  fi
   echo
   printf '%s\n' "${to_remove[@]}" | xargs -n 80 apt-get -s -y --no-install-recommends remove
-  echo
-  echo "DRY-RUN: autoremove/purge simulation"
-  apt-get -s -y autoremove --purge
+  if [[ "$AUTOREMOVE" -eq 1 ]]; then
+    echo
+    echo "DRY-RUN: autoremove/purge simulation"
+    apt-get -s -y autoremove --purge
+  fi
   exit 0
 fi
 
 export DEBIAN_FRONTEND=noninteractive
 printf '%s\n' "${to_remove[@]}" | xargs -n 80 apt-get -y --no-install-recommends remove
-apt-get -y autoremove --purge
+if [[ "$AUTOREMOVE" -eq 1 ]]; then
+  apt-get -y autoremove --purge
+fi
 if command -v apt-get >/dev/null 2>&1; then
   apt-get clean
 fi

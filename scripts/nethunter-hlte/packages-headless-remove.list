@@ -9,9 +9,10 @@
 # xserver-xorg
 #
 # --- Mail (common postinst pain in chroot) ---
-exim4-daemon-light
-exim4-base
-exim4-config
+# Do NOT auto-remove exim4 here: apt often replaces with courier-mta and yanks Xfce/kali metas (verify dry-run first).
+# exim4-daemon-light
+# exim4-base
+# exim4-config
 # postfix
 #
 # --- Printing (no printer on device) ---

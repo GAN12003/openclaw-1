@@ -1,0 +1,13 @@
+Run helpers from a PC with adb; device USB debugging on; NetHunter chroot must exist.
+Push updated scripts, copy into chroot /root, then one-shot (example Kali path):
+
+  adb push scripts/nethunter-hlte /data/local/tmp/
+  adb shell su -c "cp -a /data/local/tmp/nethunter-hlte /data/local/nhsystem/kali-armhf/root/ && chmod 755 /data/local/nhsystem/kali-armhf/root/nethunter-hlte/*.sh"
+
+Kali is entered via (mounts sdcard, DNS, chroot — NetHunter may log sysctl shmmax on old kernels; harmless):
+
+  adb shell "su -c 'bootkali custom_cmd /bin/bash /root/nethunter-hlte/chroot-continue.sh'"
+
+If custom_cmd is unknown, the NetHunter app must have been opened once so MNT=kalifs is set.
+
+No interactive bootkali session is required: custom_cmd passes the rest of the line into the chroot after sudo (see /system/bin/bootkali).

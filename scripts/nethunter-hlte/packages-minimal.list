@@ -4,9 +4,10 @@
 # Do NOT remove kali metapackages you rely on without checking apt output first.
 #
 # === Already in packages-headless-remove.list; repeated so --profile minimal is self-contained ===
-exim4-daemon-light
-exim4-base
-exim4-config
+# (exim* omitted — on-device dry-run can pull in courier-mta; handle mail stack manually if needed.)
+# exim4-daemon-light
+# exim4-base
+# exim4-config
 cups
 cups-bsd
 cups-daemon
@@ -25,7 +26,7 @@ hplip-data
 # === Mail (optional) — keep bsd-mailx if some tool needs /usr/bin/mail ===
 # bsd-mailx
 # mailutils
-postfix
+# postfix
 # sendmail
 #
 # === Network discovery on LAN (rarely needed in chroot) ===
@@ -41,9 +42,9 @@ sane-utils
 simple-scan
 # xsane
 #
-# === Power desktop bits (chroot) ===
-upower
-power-profiles-daemon
+# === Power desktop bits (chroot) — can drag Xfce power stack; only if you are sure ===
+# upower
+# power-profiles-daemon
 #
 # === Bluetooth / GUI pairing (headless) ===
 blueman

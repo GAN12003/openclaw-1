@@ -31,3 +31,7 @@ Restore: rollback is manual and risky. A snapshot is for reference; do not dpkg 
    (Confirm package count and free space moved in the right direction.)
 
 Never remove blindly: if apt wants to remove nmap/git/curl/wget, stop and fix the list.
+If a dry-run tries to install courier-mta, replace lightdm, or remove kali-undercover, hit Ctrl+C and do not apply — exim/MTA must be untangled manually.
+chroot-minimize no longer simulates autoremove unless you add --autoremove (huge surges of purges on broken dpkg are common).
+
+On PC (ADB + root):  PHONE-ADB.txt
