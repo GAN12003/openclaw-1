@@ -1,0 +1,25 @@
+NetHunter hlte: minimal chroot — run in this order (inside bootkali)
+
+0) chroot-snapshot.sh
+   (Keep the printed folder path. Restore later with: dpkg --set-selections < dpkg-selections.txt then apt-get dselect-upgrade — only if you need rollback.)
+
+1) chroot-audit.sh
+   (Note disk free, dpkg --audit, largest packages.)
+
+2) chroot-minimize.sh --profile safe
+   (Dry-run. Then: chroot-minimize.sh --profile safe --apply)
+
+3) chroot-minimize.sh --profile minimal
+   (Dry-run. Edit scripts/nethunter-hlte/packages-minimal.list first: comment anything you use.)
+   (Then: chroot-minimize.sh --profile minimal --apply)
+
+4) chroot-purge-docs-dry.sh
+   (Dry-run. Optional: chroot-purge-docs-dry.sh --apply  — reclaims a lot of space; dev docs go away.)
+
+5) chroot-cleanup-finish.sh
+   (Repairs dpkg, fixes dependencies, autoremove, clean cache. Safe to re-run.)
+
+6) chroot-audit.sh again
+   (Confirm package count and free space moved in the right direction.)
+
+Never remove blindly: if apt wants to remove nmap/git/curl/wget, stop and fix the list.

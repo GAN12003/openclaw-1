@@ -18,6 +18,9 @@ USER.md
 .idea/
 .vscode/
 
+# NetHunter chroot backup snapshots (device-local, can be large)
+scripts/nethunter-hlte/snapshots/
+
 # Python caches
 __pycache__/
 *.pyc

@@ -1,0 +1,123 @@
+# Aggressive "minimal" list for a headless phone chroot. One package per line.
+# Run: chroot-minimize.sh --profile minimal   (dry-run)
+# Then edit: comment out anything you still need (X11 apps, NetHunter GUI, etc.)
+# Do NOT remove kali metapackages you rely on without checking apt output first.
+#
+# === Already in packages-headless-remove.list; repeated so --profile minimal is self-contained ===
+exim4-daemon-light
+exim4-base
+exim4-config
+cups
+cups-bsd
+cups-daemon
+cups-browsed
+cups-client
+cups-core-drivers
+cups-filters
+cups-ipp-utils
+cups-ppdc
+cups-server-common
+cups-filters-core-drivers
+ippusbxd
+hplip
+hplip-data
+#
+# === Mail (optional) — keep bsd-mailx if some tool needs /usr/bin/mail ===
+# bsd-mailx
+# mailutils
+postfix
+# sendmail
+#
+# === Network discovery on LAN (rarely needed in chroot) ===
+avahi-daemon
+avahi-utils
+libnss-mdns
+# (If something breaks: reinstall avahi-daemon or use minimal nsswitch.)
+#
+# === Color management / scanning (no scanner on device) ===
+colord
+sane
+sane-utils
+simple-scan
+# xsane
+#
+# === Power desktop bits (chroot) ===
+upower
+power-profiles-daemon
+#
+# === Bluetooth / GUI pairing (headless) ===
+blueman
+bluez-cups
+# bluez (WARNING: can break command-line BT if you use it; leave commented unless you know.)
+# bluez-obexd
+#
+# === GUI network tools (if installed) — keep if you use NetHunter app ===
+# network-manager-gnome
+# nm-connection-editor
+# modemmanager
+#
+# === Snap / flatpak (if present) ===
+# snapd
+# flatpak
+# plasma-discover
+# gnome-software
+# packagekit
+# packagekit-tools
+#
+# === Display managers & X stack (DANGER: Kali/NetHunter may need for VNC/keX) ===
+# Uncomment only if you are 100% CLI-only in chroot.
+# lightdm
+# gdm3
+# sddm
+# slim
+# xserver-xorg
+# xserver-xorg-core
+# xserver-xorg-input-all
+# xorg
+# x11-xserver-utils
+# x11-common
+# xinit
+# x11-apps
+# x11-utils
+# x11-session-utils
+#
+# === Browsers (huge) — only if you will never browse from chroot ===
+# firefox-esr
+# chromium
+# chromium-common
+# thunderbird
+#
+# === Office / heavy desktop (if present) ===
+# libreoffice-core
+# libreoffice-common
+# gimp
+# inkscape
+#
+# === Wireshark UI — keep tshark, drop GUI if you use CLI only ===
+# wireshark
+# wireshark-qt
+# wireshark-common
+#
+# === TeX / big dev stacks (if you did not ask for them) ===
+# texlive-*
+# (pattern not supported: add explicit texlive package names from: dpkg -l | grep texlive)
+#
+# === Games / emulators (if any) ===
+# steam*
+# (patterns unsupported — add names from dpkg -l)
+#
+# === Kali "surface" (optional) — can affect look but often safe ===
+# kali-themes
+# kali-theme-core
+# kali-undercover
+#
+# === Extra locales (reclaim: use locale / localepurge manually if installed) ===
+# localepurge
+#
+# === Virtualization (pointless in phone chroot) — comment if not present ===
+# virtualbox-*
+# qemu-system-x86
+# libvirt0
+# virt-manager
+#
+# Add more names from: chroot-audit.sh "largest installed packages"
