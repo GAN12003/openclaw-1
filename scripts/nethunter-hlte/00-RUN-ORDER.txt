@@ -1,7 +1,15 @@
 NetHunter hlte: minimal chroot — run in this order (inside bootkali)
 
-0) chroot-snapshot.sh
-   (Keep the printed folder path. Restore later with: dpkg --set-selections < dpkg-selections.txt then apt-get dselect-upgrade — only if you need rollback.)
+0a) chroot-continue.sh
+   (All-in-one non-destructive: snapshot, audit, both minimize dry-runs, export of top 50 largest packages to snapshots/last-top-packages.txt. CHROOT_CONTINUE_SKIP_SNAPSHOT=1 to skip 0b.)
+
+0b) chroot-snapshot.sh
+   (If you did not use 0a. Keep the printed folder path.)
+
+0c) chroot-export-top-packages.sh 80
+   (Optional. Edit the N argument; output under snapshots/last-top-packages.txt by default. Use names as hints, not as blind purge.)
+
+Restore: rollback is manual and risky. A snapshot is for reference; do not dpkg --set-selections on a half-broken chroot without reading apt/dpkg error output first. Prefer: repair with chroot-cleanup-finish.sh, then remove fewer packages.
 
 1) chroot-audit.sh
    (Note disk free, dpkg --audit, largest packages.)

@@ -23,5 +23,13 @@ for f in /etc/apt/sources.list /etc/apt/sources.list.d /etc/apt/preferences.d; d
   fi
 done
 
+{
+  date -u
+  df -hP 2>/dev/null
+} >"$OUT/df.txt" 2>/dev/null || true
+if command -v free >/dev/null 2>&1; then
+  free -h 2>/dev/null >"$OUT/free.txt" 2>/dev/null || true
+fi
+
 echo "Snapshot written to: $OUT"
 du -sh "$OUT" 2>/dev/null || true
