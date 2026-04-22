@@ -1,0 +1,37 @@
+# One package per line. Lines starting with # are ignored.
+# Edit this file for your chroot, then run chroot-minimize.sh (dry-run by default).
+#
+# Intention: drop desktop / print / mail stacks that are rarely useful in a phone chroot
+# and often fail postinst under NetHunter. Comment anything you still want.
+#
+# --- Display / desktop (if pulled in) ---
+# lightdm
+# xserver-xorg
+#
+# --- Mail (common postinst pain in chroot) ---
+exim4-daemon-light
+exim4-base
+exim4-config
+# postfix
+#
+# --- Printing (no printer on device) ---
+cups
+cups-daemon
+cups-browsed
+cups-client
+cups-core-drivers
+cups-filters
+cups-ipp-utils
+cups-ppdc
+cups-server-common
+#
+# --- Bluetooth UI (headless) ---
+# blueman
+# bluez-cups
+#
+# --- Large desktop apps (uncomment if present) ---
+# libreoffice-core
+# thunderbird
+# wireshark-qt
+#
+# --- Orphaned metas: add only what `aptitude why` / manual review says is safe ---
