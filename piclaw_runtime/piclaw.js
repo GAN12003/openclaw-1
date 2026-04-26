@@ -1337,9 +1337,9 @@ async function main() {
     cameraStream: (id) => deviceControl.cameraStream(id),
     getCamerasHtml: () => {
       const cams = deviceControl.listCameras().map((d) => ({
-        id: deviceControl.cameraId(d),
+        id: d.id || deviceControl.cameraId(d),
         ip: d.ip || "",
-        names: d.names || [],
+        names: d.name ? [d.name] : (d.names || []),
       }));
       if (cams.length === 0) return "<b>Cameras</b>\nNo RTSP cameras detected yet. Run <code>/devices</code> first.";
       const token = String(process.env.PICLAW_STREAM_TOKEN || "").trim();
@@ -1365,7 +1365,7 @@ async function main() {
       return [
         "<b>Camera</b>",
         `ID: <code>${r.id}</code>`,
-        `RTSP: <code>${r.url}</code>`,
+        `RTSP candidates: <code>${(r.urls || []).join(" , ")}</code>`,
         `<a href="${link}">${link}</a>`,
       ].join("\n");
     },

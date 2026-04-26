@@ -23,12 +23,11 @@ function requireToken(req, res, next) {
 }
 
 function cameraCandidates() {
-  const inv = inventory.loadInventory();
-  return Object.values(inv.devices || {}).filter((d) => (d.last_protocols || []).includes("rtsp"));
+  return deviceControl.listCameras();
 }
 
 function idForDevice(d) {
-  return String(d.mac || d.ip || "").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return String(d.id || d.mac || d.ip || "").replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function streamRoot() {
@@ -43,44 +42,63 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
-function startHls(cameraId, rtspUrl) {
+function startHls(cameraId, rtspUrls) {
   const existing = streams.get(cameraId);
   if (existing && !existing.proc.killed) return existing;
+  const candidates = Array.isArray(rtspUrls) ? rtspUrls.filter(Boolean) : [String(rtspUrls || "")].filter(Boolean);
+  if (candidates.length === 0) return null;
   const dir = streamDir(cameraId);
   ensureDir(dir);
   const indexPath = path.join(dir, "index.m3u8");
-  const args = [
-    "-hide_banner",
-    "-loglevel",
-    "error",
-    "-rtsp_transport",
-    "tcp",
-    "-i",
-    rtspUrl,
-    "-map",
-    "0:v:0",
-    "-c:v",
-    "copy",
-    "-an",
-    "-f",
-    "hls",
-    "-hls_time",
-    "2",
-    "-hls_list_size",
-    "8",
-    "-hls_flags",
-    "delete_segments+append_list",
-    indexPath,
-  ];
-  const proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+  let idx = 0;
+  let proc = null;
   let lastErr = "";
-  proc.stderr.on("data", (buf) => {
-    lastErr = String(buf || "").trim().slice(-400);
-  });
-  proc.on("exit", () => {
-    streams.delete(cameraId);
-  });
-  const rec = { proc, dir, indexPath, rtspUrl, startedAt: Date.now(), lastErr };
+  const rec = { proc: null, dir, indexPath, rtspUrls: candidates, activeUrl: candidates[0], startedAt: Date.now(), lastErr };
+  const spawnForCurrent = () => {
+    rec.activeUrl = candidates[idx];
+    const args = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-rtsp_transport",
+      "tcp",
+      "-i",
+      rec.activeUrl,
+      "-map",
+      "0:v:0",
+      "-c:v",
+      "copy",
+      "-an",
+      "-f",
+      "hls",
+      "-hls_time",
+      "2",
+      "-hls_list_size",
+      "8",
+      "-hls_flags",
+      "delete_segments+append_list",
+      indexPath,
+    ];
+    proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    rec.proc = proc;
+    proc.stderr.on("data", (buf) => {
+      lastErr = String(buf || "").trim().slice(-400);
+      rec.lastErr = lastErr;
+    });
+    proc.on("exit", (code) => {
+      if (code === 0) {
+        streams.delete(cameraId);
+        return;
+      }
+      idx += 1;
+      if (idx < candidates.length) {
+        spawnForCurrent();
+      } else {
+        streams.delete(cameraId);
+      }
+    });
+  };
+  spawnForCurrent();
   streams.set(cameraId, rec);
   return rec;
 }
@@ -127,7 +145,7 @@ function start() {
       return {
         id,
         ip: d.ip || "",
-        names: d.names || [],
+        names: d.name ? [d.name] : (d.names || []),
         url: `${publicBaseUrl()}/camera/${encodeURIComponent(id)}${streamToken() ? `?t=${encodeURIComponent(streamToken())}` : ""}`,
       };
     });
@@ -144,11 +162,15 @@ function start() {
       return;
     }
     const r = deviceControl.cameraStream(camId);
-    if (!r.ok || !r.url) {
+    if (!r.ok || !r.urls || r.urls.length === 0) {
       res.status(400).send(`cannot resolve stream: ${r.reason || "unknown"}`);
       return;
     }
-    const job = startHls(camId, r.url);
+    const job = startHls(camId, r.urls);
+    if (!job) {
+      res.status(500).send("failed to initialize stream worker");
+      return;
+    }
     const m3u8 = `${publicBaseUrl()}/hls/${encodeURIComponent(camId)}/index.m3u8${streamToken() ? `?t=${encodeURIComponent(streamToken())}` : ""}`;
     if (job.lastErr) {
       // Keep serving page; error text appears if ffmpeg cannot pull source.
@@ -172,7 +194,7 @@ function start() {
       const cam = cameraCandidates().find((d) => idForDevice(d) === camId);
       if (cam) {
         const r = deviceControl.cameraStream(camId);
-        if (r.ok && r.url) startHls(camId, r.url);
+        if (r.ok && r.urls && r.urls.length > 0) startHls(camId, r.urls);
       }
       res.status(404).json({ ok: false, reason: "not ready" });
       return;

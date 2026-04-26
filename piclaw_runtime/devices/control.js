@@ -7,13 +7,54 @@ const airplay = require("./adapters/airplay");
 const dlna = require("./adapters/dlna");
 const ssh = require("./adapters/ssh");
 
+function configuredCameras() {
+  const raw = String(process.env.PICLAW_CAMERAS_JSON || "").trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((c) => ({
+        id: String(c.id || "").trim(),
+        name: String(c.name || "").trim(),
+        ip: String(c.ip || "").trim(),
+        urls: Array.isArray(c.urls) ? c.urls.map((u) => String(u || "").trim()).filter(Boolean) : [],
+      }))
+      .filter((c) => c.id && c.urls.length > 0);
+  } catch (_) {
+    return [];
+  }
+}
+
 function find(id) {
   return inventory.findDevice(id);
 }
 
 function listCameras() {
   const inv = inventory.loadInventory();
-  return Object.values(inv.devices || {}).filter((d) => (d.last_protocols || []).includes("rtsp"));
+  const discovered = Object.values(inv.devices || {})
+    .filter((d) => (d.last_protocols || []).includes("rtsp"))
+    .map((d) => ({
+      source: "discovered",
+      id: cameraId(d),
+      name: ((d.names || [])[0] || "").trim(),
+      ip: d.ip || "",
+      urls: [rtsp.streamUrl(d)].filter(Boolean),
+      device: d,
+    }));
+  const manual = configuredCameras().map((c) => ({
+    source: "configured",
+    id: c.id,
+    name: c.name,
+    ip: c.ip,
+    urls: c.urls,
+    device: null,
+  }));
+  const byId = new Map();
+  for (const c of [...discovered, ...manual]) {
+    if (!byId.has(c.id)) byId.set(c.id, c);
+  }
+  return Array.from(byId.values());
 }
 
 function cameraId(device) {
@@ -23,13 +64,15 @@ function cameraId(device) {
 function findCameraById(id) {
   const wanted = String(id || "").trim();
   const cams = listCameras();
-  return cams.find((d) => cameraId(d) === wanted || String(d.ip || "") === wanted || String(d.mac || "") === wanted) || null;
+  return cams.find((d) => d.id === wanted || String(d.ip || "") === wanted) || null;
 }
 
 function cameraStream(id) {
-  const d = findCameraById(id) || find(id);
+  const c = findCameraById(id);
+  if (c) return { ok: true, id: c.id, name: c.name || "", urls: c.urls, url: c.urls[0], device: c.device, source: c.source };
+  const d = find(id);
   if (!d) return { ok: false, reason: "device not found" };
-  return { ok: true, id: cameraId(d), url: rtsp.streamUrl(d), device: d };
+  return { ok: true, id: cameraId(d), name: ((d.names || [])[0] || "").trim(), urls: [rtsp.streamUrl(d)].filter(Boolean), url: rtsp.streamUrl(d), device: d, source: "discovered" };
 }
 
 async function speakerPlay(id, url) {
