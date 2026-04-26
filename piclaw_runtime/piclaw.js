@@ -106,6 +106,7 @@ const capabilities = require("./introspection/capabilities");
 const deviceWebProxy = require("./devices/web_proxy");
 const logShipper = require("./integrations/log_shipper");
 const deviceControl = require("./devices/control");
+const { runShellCommand } = require("./core/exec_run");
 
 const runtime_state = { environment: null, hostMetrics: null };
 const pendingEnvKeyByChat = {};
@@ -1334,6 +1335,40 @@ async function main() {
       return `<b>Device</b>\n<pre>${JSON.stringify(d, null, 2)}</pre>`;
     },
     cameraStream: (id) => deviceControl.cameraStream(id),
+    getCamerasHtml: () => {
+      const cams = deviceControl.listCameras().map((d) => ({
+        id: deviceControl.cameraId(d),
+        ip: d.ip || "",
+        names: d.names || [],
+      }));
+      if (cams.length === 0) return "<b>Cameras</b>\nNo RTSP cameras detected yet. Run <code>/devices</code> first.";
+      const token = String(process.env.PICLAW_STREAM_TOKEN || "").trim();
+      const base = String(process.env.PICLAW_DEVICE_WEB_PUBLIC_BASE_URL || "").trim()
+        || `http://${process.env.PICLAW_DEVICE_WEB_HOST || "127.0.0.1"}:${Number(process.env.PICLAW_DEVICE_WEB_PORT || 8088)}`;
+      const lines = ["<b>Cameras</b>"];
+      for (const c of cams) {
+        const q = token ? `?t=${encodeURIComponent(token)}` : "";
+        const link = `${base.replace(/\/$/, "")}/camera/${encodeURIComponent(c.id)}${q}`;
+        lines.push(`- <code>${c.id}</code> (${c.ip || "n/a"})`);
+        lines.push(`  <a href="${link}">${link}</a>`);
+      }
+      return lines.join("\n");
+    },
+    getCameraLinkHtml: (id) => {
+      const r = deviceControl.cameraStream(id);
+      if (!r.ok) return `<b>Camera</b>\n${r.reason || "not found"}`;
+      const token = String(process.env.PICLAW_STREAM_TOKEN || "").trim();
+      const base = String(process.env.PICLAW_DEVICE_WEB_PUBLIC_BASE_URL || "").trim()
+        || `http://${process.env.PICLAW_DEVICE_WEB_HOST || "127.0.0.1"}:${Number(process.env.PICLAW_DEVICE_WEB_PORT || 8088)}`;
+      const q = token ? `?t=${encodeURIComponent(token)}` : "";
+      const link = `${base.replace(/\/$/, "")}/camera/${encodeURIComponent(r.id)}${q}`;
+      return [
+        "<b>Camera</b>",
+        `ID: <code>${r.id}</code>`,
+        `RTSP: <code>${r.url}</code>`,
+        `<a href="${link}">${link}</a>`,
+      ].join("\n");
+    },
     speakerPlay: (id, url) => deviceControl.speakerPlay(id, url),
     tvOff: (id) => deviceControl.tvOff(id),
     desktopRun: (id, cmd) => deviceControl.desktopRun(id, cmd),
@@ -1350,6 +1385,7 @@ async function main() {
     joinSegment: (name, agentId) => vlanProfiles.joinAgent(name, agentId),
     getNetInfoHtml: () => netInfo.getNetInfoHtml(),
     runInstallTailscale: () => netInfo.runInstallTailscale({ appendEnv: envAppend.appendEnv }),
+    runDnsHarden: async () => runShellCommand("bash /opt/piclaw/scripts/harden-dns.sh"),
     getUsageReportHtml: () => buildUsageReportHtml(),
     getResourcesReportHtml: () => buildResourcesReportHtml(),
     getLogsSummaryHtml: () => buildLogsSummaryHtml(),

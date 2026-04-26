@@ -2,6 +2,7 @@
 
 const fritz = require("./fritz_tr064");
 const eventRouter = require("../events/event_router");
+const inventory = require("../lan/inventory");
 
 function disabled() {
   return { ok: false, reason: "PICLAW_ROUTER_CONTROL_ENABLED=0" };
@@ -20,8 +21,20 @@ async function routerStatus() {
 }
 
 async function listDevices() {
-  if (!fritz.enabled()) return disabled();
-  return { ok: true, devices: [], note: "TR-064 host list parser not enabled yet; LAN inventory is source of truth." };
+  const inv = inventory.loadInventory();
+  const devices = Object.values((inv && inv.devices) || {}).map((d) => ({
+    id: d.mac || d.ip || "",
+    ip: d.ip || "",
+    mac: d.mac || "",
+    names: d.names || [],
+    tags: d.tags || [],
+    protocols: d.last_protocols || [],
+    source: "lan_inventory",
+  }));
+  if (!fritz.enabled()) {
+    return { ok: true, router_control_enabled: false, devices, note: "Router write-control disabled; showing read-only LAN inventory." };
+  }
+  return { ok: true, router_control_enabled: true, devices, note: "Read-only list via LAN inventory. TR-064 host parser can be added next." };
 }
 
 async function wifiSet(enabled, band) {

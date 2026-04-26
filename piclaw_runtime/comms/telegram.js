@@ -246,6 +246,8 @@ function createBot(getStatusText, options = {}) {
     { command: "lan", description: "LAN summary (owner)" },
     { command: "devices", description: "Discovered devices (owner)" },
     { command: "router_status", description: "Router health (owner)" },
+    { command: "cameras", description: "List camera stream links (owner)" },
+    { command: "dns_harden", description: "Stabilize DNS on Wi-Fi (owner)" },
   ]).catch((err) => console.warn("[piclaw] setMyCommands failed:", err.message));
 
   bot.on("polling_error", (err) => {
@@ -832,6 +834,29 @@ function createBot(getStatusText, options = {}) {
       }
     });
   }
+  if (typeof options.isOwnerChat === "function" && typeof options.runDnsHarden === "function") {
+    bot.onText(/^\/dns_harden(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /dns_harden.");
+      const lock = maintenance.enter("dns_harden");
+      if (!lock.ok) {
+        const elapsed = Math.max(0, Math.round((Date.now() - lock.active.startedAt) / 1000));
+        await bot.sendMessage(chatId, `Maintenance already running: /${lock.active.name} (${elapsed}s ago).`);
+        return;
+      }
+      try {
+        await bot.sendMessage(chatId, "Applying DNS hardening (nmcli + reconnect)...");
+        const r = await options.runDnsHarden();
+        if (r.code === 0) {
+          await bot.sendMessage(chatId, `<b>DNS hardening done</b>\n<pre>${escapeHtml(tailText([r.stdout, r.stderr], 3200))}</pre>`, { parse_mode: "HTML" });
+        } else {
+          await bot.sendMessage(chatId, formatFailureHtml([r.stdout, r.stderr, `exit code: ${r.code}`]), { parse_mode: "HTML" });
+        }
+      } finally {
+        maintenance.leave("dns_harden");
+      }
+    });
+  }
 
   if (typeof options.isOwnerChat === "function" && typeof options.getUsageReportHtml === "function") {
     bot.onText(/\/usage/, async (msg) => {
@@ -1044,6 +1069,20 @@ function createBot(getStatusText, options = {}) {
       const chatId = msg.chat.id;
       if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /device_show.");
       await bot.sendMessage(chatId, options.getDeviceHtml(match[1]), { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.getCamerasHtml === "function") {
+    bot.onText(/^\/cameras(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /cameras.");
+      await bot.sendMessage(chatId, options.getCamerasHtml(), { parse_mode: "HTML", disable_web_page_preview: true });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.getCameraLinkHtml === "function") {
+    bot.onText(/^\/camera(?:@\S+)?\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /camera.");
+      await bot.sendMessage(chatId, options.getCameraLinkHtml(match[1]), { parse_mode: "HTML", disable_web_page_preview: true });
     });
   }
   if (typeof options.isOwnerChat === "function" && typeof options.cameraStream === "function") {
@@ -1311,6 +1350,7 @@ function createBot(getStatusText, options = {}) {
       "/gpio — GPIO control (pulse/set)",
       "/update — A/B slot switch only (needs piclaw-update; see docs/AB-UPDATE.md)",
       "/net — local/public IP, Tailscale state, ssh ready hint (owner)",
+      "/dns_harden — set stable DNS and reconnect Wi-Fi profile (owner)",
       "/capabilities — runtime capability matrix (owner)",
       "/lan — LAN summary + fresh scan (owner)",
       "/lan_show <ip|mac> — show one tracked device (owner)",
@@ -1318,6 +1358,8 @@ function createBot(getStatusText, options = {}) {
       "/lan_tag <ip|mac> <tag> — assign metadata tag (owner)",
       "/lan_watch <ip|mac> [on|off] — watchlist toggle (owner)",
       "/devices — refresh protocol discovery + list (owner)",
+      "/cameras — list detected cameras and links (owner)",
+      "/camera <id> — get one camera web link (owner)",
       "/device_show <id> — details for one device (owner)",
       "/cam_stream <id> — camera stream metadata (owner)",
       "/speaker_play <id> <url> — play media on speaker/tv adapter (owner)",
