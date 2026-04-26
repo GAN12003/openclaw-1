@@ -10,20 +10,34 @@ const ssh = require("./adapters/ssh");
 function configuredCameras() {
   const raw = String(process.env.PICLAW_CAMERAS_JSON || "").trim();
   if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((c) => ({
-        id: String(c.id || "").trim(),
-        name: String(c.name || "").trim(),
-        ip: String(c.ip || "").trim(),
-        urls: Array.isArray(c.urls) ? c.urls.map((u) => String(u || "").trim()).filter(Boolean) : [],
-      }))
-      .filter((c) => c.id && c.urls.length > 0);
-  } catch (_) {
-    return [];
+  const candidates = [raw];
+  // .env may preserve escaped quotes (e.g. [{\"id\":\"...\"}]); try a de-escaped variant too.
+  if (raw.includes('\\"')) {
+    candidates.push(raw.replace(/\\"/g, '"'));
   }
+  // Some setups may still carry one extra wrapping quote layer.
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    candidates.push(raw.slice(1, -1));
+  }
+  let parsed = null;
+  for (const c of candidates) {
+    try {
+      const j = JSON.parse(c);
+      if (Array.isArray(j)) {
+        parsed = j;
+        break;
+      }
+    } catch (_) {}
+  }
+  if (!parsed) return [];
+  return parsed
+    .map((c) => ({
+      id: String(c.id || "").trim(),
+      name: String(c.name || "").trim(),
+      ip: String(c.ip || "").trim(),
+      urls: Array.isArray(c.urls) ? c.urls.map((u) => String(u || "").trim()).filter(Boolean) : [],
+    }))
+    .filter((c) => c.id && c.urls.length > 0);
 }
 
 function find(id) {
