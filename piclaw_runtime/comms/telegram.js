@@ -668,6 +668,60 @@ function createBot(getStatusText, options = {}) {
     });
   }
 
+  if (typeof options.getNetInfoHtml === "function") {
+    bot.onText(/^\/net(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId, msg.from && msg.from.id)) {
+          await bot.sendMessage(chatId, "Only the owner chat can run /net.");
+          return;
+        }
+        const text = await options.getNetInfoHtml();
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.runInstallTailscale === "function") {
+    bot.onText(/^\/install_tailscale(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
+          await bot.sendMessage(chatId, "Only the owner can run /install_tailscale.");
+          return;
+        }
+        await bot.sendMessage(chatId, "Installing/joining Tailscale… (this may take 30–90s on a Pi 0)");
+        const r = await options.runInstallTailscale();
+        const escape = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        if (r.ok) {
+          const s = r.status || {};
+          const lines = [
+            "<b>Tailscale</b>",
+            `State:    <code>${escape(s.TAILSCALE_STATE || "unknown")}</code>`,
+            `Hostname: <code>${escape(s.TAILSCALE_HOSTNAME || "")}</code>`,
+            `IPv4:     <code>${escape(s.TAILSCALE_IP4 || "n/a")}</code>`,
+          ];
+          if (s.TAILSCALE_IP4) {
+            lines.push(`SSH:      <code>ssh ${escape(process.env.USER || "pi")}@${escape(s.TAILSCALE_IP4)}</code>`);
+          }
+          if (r.redacted) lines.push("\nAuth key cleared from .env (single-use).");
+          await bot.sendMessage(chatId, lines.join("\n"), { parse_mode: "HTML" });
+        } else {
+          const tail = [r.stdout, r.stderr, r.error].filter(Boolean).join("\n").trim().slice(-3500);
+          await bot.sendMessage(
+            chatId,
+            `<b>Failed</b>\n<pre>${escape(tail || "(no output)")}</pre>`,
+            { parse_mode: "HTML" }
+          );
+        }
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
   if (typeof options.isOwnerChat === "function" && typeof options.runAgentRuntimeUpdate === "function") {
     bot.onText(/^\/updateandrestart(?:@\S+)?$/, async (msg) => {
       const chatId = msg.chat.id;
@@ -973,6 +1027,8 @@ function createBot(getStatusText, options = {}) {
       "/uart_devices — list UART devices",
       "/gpio — GPIO control (pulse/set)",
       "/update — A/B slot switch only (needs piclaw-update; see docs/AB-UPDATE.md)",
+      "/net — local/public IP, Tailscale state, ssh ready hint (owner)",
+      "/install_tailscale — install + join Tailscale using PICLAW_TAILSCALE_AUTHKEY (owner)",
       "/showupdates — commits on upstream not merged into current clone HEAD (owner)",
       "/suggestgit — git status + diff stat in PICLAW_GIT_CLONE_ROOT (owner)",
       "/updateandrestart — pull, rsync piclaw_runtime to /opt/piclaw, npm, restart service (owner)",

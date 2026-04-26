@@ -124,6 +124,7 @@ piclaw_runtime/
 ├── system/
 │   ├── budget.js               # getBudget(); API spend
 │   ├── health.js               # getHealth(); cpu temp, uptime (systeminformation)
+│   ├── net_info.js             # getNetInfoHtml() for /net; runInstallTailscale() for /install_tailscale (drives scripts/install-tailscale.sh, redacts PICLAW_TAILSCALE_AUTHKEY on success)
 │   └── wifi.js                 # getWifi(); wraps wifi_status + systeminformation
 ├── uart_identity/
 │   ├── decay.js                # runIfDue(); decay confidence in registry
@@ -137,6 +138,7 @@ piclaw_runtime/
 └── scripts/
     ├── bootstrap-identity.js   # Create identity dir + minimal self.json, goals.json, meta.json (run on Pi)
     ├── deploy-to-pi.ps1        # Windows deploy to Pi
+    ├── install-tailscale.sh    # Idempotent installer + tailscale up --ssh; called by /install_tailscale; reports TAILSCALE_IP4 etc.
     ├── piclaw-update.sh        # A/B updater; install as /usr/local/bin/piclaw-update
     └── setup-pi-remote.sh      # One-time Pi setup; /opt/piclaw_identity
 ```

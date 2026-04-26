@@ -51,6 +51,7 @@ const watchdog = require("./core/watchdog");
 const health = require("./system/health");
 const wifi = require("./system/wifi");
 const budget = require("./system/budget");
+const netInfo = require("./system/net_info");
 const telegram = require("./comms/telegram");
 const wifiStatus = require("./sensors/wifi_status");
 const powerStatus = require("./sensors/power_status");
@@ -1143,6 +1144,8 @@ async function main() {
     runGitShowUpdates: () => gitAgentStatus.showUpdates(),
     runGitSuggest: () => gitAgentStatus.suggestGit(),
     runAgentRuntimeUpdate: () => gitAgentStatus.runAgentRuntimeUpdate(),
+    getNetInfoHtml: () => netInfo.getNetInfoHtml(),
+    runInstallTailscale: () => netInfo.runInstallTailscale({ appendEnv: envAppend.appendEnv }),
     getUsageReportHtml: () => buildUsageReportHtml(),
     getResourcesReportHtml: () => buildResourcesReportHtml(),
     getLogsSummaryHtml: () => buildLogsSummaryHtml(),
