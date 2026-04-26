@@ -94,6 +94,18 @@ const express = require("./perception/express");
 const envAppend = require("./core/env_append");
 const gitAgentStatus = require("./integrations/git_agent_status");
 const hostHealthWatch = require("./system/host_health_watch");
+const eventRouter = require("./events/event_router");
+const lanTracker = require("./lan/tracker");
+const lanInventory = require("./lan/inventory");
+const devicesDiscover = require("./devices/discover");
+const routerControl = require("./router/control");
+const vlanProfiles = require("./router/vlan_profiles");
+const radioMode = require("./radio/mode_manager");
+const handshakeWatch = require("./radio/handshake_watch");
+const capabilities = require("./introspection/capabilities");
+const deviceWebProxy = require("./devices/web_proxy");
+const logShipper = require("./integrations/log_shipper");
+const deviceControl = require("./devices/control");
 
 const runtime_state = { environment: null, hostMetrics: null };
 const pendingEnvKeyByChat = {};
@@ -235,6 +247,41 @@ function buildLogsSummaryHtml() {
 function log(msg) {
   const ts = new Date().toISOString();
   console.log(`[piclaw] ${ts} ${msg}`);
+}
+
+function getPhysicalContext() {
+  return {
+    labName: String(process.env.PICLAW_LAB_NAME || "").trim(),
+    labZone: String(process.env.PICLAW_LAB_ZONE || "").trim(),
+    location: String(process.env.PICLAW_PHYSICAL_LOCATION || "").trim(),
+    note: String(process.env.PICLAW_DEPLOYMENT_NOTE || "").trim(),
+  };
+}
+
+function buildPhysicalContextLines() {
+  const ctx = getPhysicalContext();
+  const out = [];
+  if (ctx.labName) out.push(`Lab: ${ctx.labName}`);
+  if (ctx.labZone) out.push(`Zone: ${ctx.labZone}`);
+  if (ctx.location) out.push(`Physical location: ${ctx.location}`);
+  if (ctx.note) out.push(`Deployment note: ${ctx.note}`);
+  return out;
+}
+
+function buildCapabilitiesLines() {
+  try {
+    const c = capabilities.getCapabilities();
+    return [
+      "Capabilities",
+      `notifier=${c.notifier_enabled ? "on" : "off"}`,
+      `collector=${c.collector_enabled ? "on" : "off"}`,
+      `router=${c.router_control_enabled ? "on" : "off"}`,
+      `radio_mode=${c.radio_mode}`,
+      `devices_known=${c.devices_known}`,
+    ];
+  } catch (_) {
+    return [];
+  }
 }
 
 async function buildStatusText() {
@@ -404,6 +451,19 @@ async function buildStatusText() {
     ];
   }
 
+  const physicalLines = buildPhysicalContextLines();
+  const physicalBlock = physicalLines.length
+    ? [
+        "",
+        "<b>Physical context</b>",
+        ...physicalLines,
+      ]
+    : [];
+  const capLines = buildCapabilitiesLines();
+  const capBlock = capLines.length
+    ? ["", "<b>Capabilities</b>", ...capLines.slice(1)]
+    : [];
+
   let agentProfileLines = [];
   if (identityBridge.isAvailable()) {
     try {
@@ -432,6 +492,8 @@ async function buildStatusText() {
     ...integrationsBlock,
     ...economyBlock,
     ...hardwareBlock,
+    ...physicalBlock,
+    ...capBlock,
     "",
     `CPU temp: ${tempStr}`,
     `Uptime: ${uptimeStr}`,
@@ -473,6 +535,14 @@ function buildWhoamiText() {
   lines.push(
     missionLine,
     `goals: ${goalSummary}`,
+    ...(() => {
+      const p = buildPhysicalContextLines();
+      return p.length ? ["", ...p] : [];
+    })(),
+    ...(() => {
+      const c = buildCapabilitiesLines();
+      return c.length ? ["", ...c] : [];
+    })(),
     "",
     `Workspace: workspaces repo, branch like ${String(fallback.hostname || "hostname").toLowerCase()}-workspace — notes, logs, memory, skills (see GIT.md in repo).`
   );
@@ -698,6 +768,15 @@ function buildChatSystemPrompt() {
     "When asked about yourself, answer using real runtime facts, not abstractions like 'cloud', 'AI model', or 'remote system'.",
   ];
 
+  const physicalLines = buildPhysicalContextLines();
+  if (physicalLines.length) {
+    lines.push("", "## Physical grounding", ...physicalLines);
+  }
+  const capLines = buildCapabilitiesLines();
+  if (capLines.length) {
+    lines.push("", "## Runtime capabilities", ...capLines);
+  }
+
   const toolingIdx = lines.findIndex((l) => l && l.startsWith("## Tooling"));
   if (toolingIdx >= 0 && identityBridge.isAvailable()) {
     try {
@@ -721,6 +800,13 @@ function buildChatSystemPrompt() {
       const st = (goals.short_term || []).slice(0, 3).map((g) => (typeof g === "string" ? g : g.text || g)).filter(Boolean);
       if (lt.length) lines.push("Long-term goals: " + lt.join("; "));
       if (st.length) lines.push("Short-term goals: " + st.join("; "));
+      const lastReview = identityBridge.getLastReview();
+      if (lastReview && typeof lastReview === "object") {
+        const reviewedAt = lastReview.at || "unknown";
+        const result = lastReview.result || "unknown";
+        const reason = lastReview.reason ? ` (${lastReview.reason})` : "";
+        lines.push(`Last goal review: ${reviewedAt}, result=${result}${reason}`);
+      }
     } catch (_) {}
   } else {
     lines.push("Identity layer is not configured. When the user asks who you are or about goals, say so and suggest creating /opt/piclaw_identity (or running /setup and the bootstrap script) and setting mission and goals.");
@@ -800,7 +886,7 @@ function buildChatSystemPrompt() {
   const full = lines.join("\n");
   const maxSys = Math.min(
     100_000,
-    Math.max(12_000, parseInt(process.env.PICLAW_SYSTEM_PROMPT_MAX_CHARS || "28000", 10) || 28000)
+    Math.max(8_000, parseInt(process.env.PICLAW_SYSTEM_PROMPT_MAX_CHARS || "16000", 10) || 16000)
   );
   if (full.length > maxSys) {
     return (
@@ -813,16 +899,43 @@ function buildChatSystemPrompt() {
 
 /** In-memory conversation history per Telegram chat (like OpenClaw memory). */
 const chatMemory = new Map();
+const stoppedChats = new Set();
+const chatReplyCache = new Map();
+
+function resetChatSession(chatId) {
+  const key = String(chatId);
+  chatMemory.delete(key);
+  stoppedChats.delete(key);
+  chatReplyCache.delete(key);
+}
+
+function stopChatSession(chatId) {
+  stoppedChats.add(String(chatId));
+}
+
+function isChatSessionStopped(chatId) {
+  return stoppedChats.has(String(chatId));
+}
+
+function getChatRequestCacheTtlMs() {
+  const raw = parseInt(process.env.PICLAW_CHAT_REQUEST_CACHE_TTL_MS || "45000", 10);
+  return Number.isFinite(raw) ? Math.min(300000, Math.max(0, raw)) : 45000;
+}
+
+function buildChatCacheKey(chatId, historySlice, userMessage) {
+  const histKey = historySlice.map((m) => `${m.role}:${String(m.content || "").slice(-120)}`).join("|");
+  return `${String(chatId)}::${histKey}::${String(userMessage || "")}`;
+}
 
 function getChatHistoryLen() {
-  const raw = parseInt(process.env.PICLAW_CHAT_HISTORY_MESSAGES || "12", 10);
-  return Number.isFinite(raw) ? Math.min(30, Math.max(4, raw)) : 12;
+  const raw = parseInt(process.env.PICLAW_CHAT_HISTORY_MESSAGES || "8", 10);
+  return Number.isFinite(raw) ? Math.min(30, Math.max(4, raw)) : 8;
 }
 
 function capChatTurnText(text) {
   const max = Math.min(
     32000,
-    Math.max(1500, parseInt(process.env.PICLAW_CHAT_HISTORY_MSG_MAX_CHARS || "4000", 10) || 4000)
+    Math.max(1200, parseInt(process.env.PICLAW_CHAT_HISTORY_MSG_MAX_CHARS || "2500", 10) || 2500)
   );
   const s = text != null ? String(text) : "";
   if (s.length <= max) return s;
@@ -848,6 +961,15 @@ async function executeExecTool(args) {
     combined = combined.slice(0, maxExec) + `\n…[exec output truncated ${origLen - maxExec} chars]`;
   }
   return combined;
+}
+
+async function executePiclawCliTool(args) {
+  const command = (args.command || "").trim();
+  if (!command) return "piclaw_cli: command is required.";
+  const allow = /^(lan\s+(list|show\s+\S+)|devices\s+refresh|router\s+status|radio\s+mode\s+(idle|client|ap|monitor)|capabilities)$/i;
+  if (!allow.test(command)) return "piclaw_cli: command not allow-listed.";
+  const full = `node cli/piclaw-cli.js ${command}`;
+  return executeExecTool({ command: full });
 }
 
 /** Memory tool: store or recall a fact in identity knowledge topic "memory". */
@@ -957,10 +1079,11 @@ async function buildChatReply(chatId, userMessage) {
     return "Chat needs OPENAI_API_KEY (NVIDIA nvapi key) in /opt/piclaw/.env, then restart Piclaw. Until then /status shows Billing: missing. Get a key at build.nvidia.com; it must start with nvapi-. Base URL/model can stay default (integrate.api.nvidia.com, z-ai/glm4.7).";
   }
   const systemPrompt = buildChatSystemPrompt();
-  let history = chatMemory.get(chatId);
+  const chatKey = String(chatId);
+  let history = chatMemory.get(chatKey);
   if (!history) {
     history = [];
-    chatMemory.set(chatId, history);
+    chatMemory.set(chatKey, history);
   }
   const histLen = getChatHistoryLen();
   const historySlice = history.slice(-histLen).map((m) => ({
@@ -973,8 +1096,19 @@ async function buildChatReply(chatId, userMessage) {
     { role: "user", content: capChatTurnText(userMessage) },
   ];
 
+  // Avoid duplicate remote calls when users resend the same prompt quickly.
+  const cacheTtl = getChatRequestCacheTtlMs();
+  const cacheKey = buildChatCacheKey(chatKey, historySlice, userMessage);
+  if (cacheTtl > 0) {
+    const cached = chatReplyCache.get(chatKey);
+    if (cached && cached.cacheKey === cacheKey && Date.now() - cached.at <= cacheTtl) {
+      return cached.reply;
+    }
+  }
+
   async function executeTool(name, args) {
     if (name === "exec") return executeExecTool(args);
+    if (name === "piclaw_cli") return executePiclawCliTool(args);
     if (name === "memory") return Promise.resolve(executeMemoryTool(args));
     if (name === "memory_search") return Promise.resolve(executeMemorySearchTool(args));
     if (name === "memory_recall_semantic") {
@@ -1014,6 +1148,9 @@ async function buildChatReply(chatId, userMessage) {
   history.push({ role: "user", content: userMessage });
   history.push({ role: "assistant", content: reply });
   if (history.length > histLen) history.splice(0, history.length - histLen);
+  if (cacheTtl > 0) {
+    chatReplyCache.set(chatKey, { cacheKey, reply, at: Date.now() });
+  }
   return reply;
 }
 
@@ -1121,6 +1258,9 @@ async function main() {
     setUartLabel: (id, label) => setUartLabel(id, label),
     requestUpdate: () => updateChannel.requestUpdate(),
     onChatMessage: (text, chatId) => buildChatReply(chatId, text),
+    resetChatSession: (chatId) => resetChatSession(chatId),
+    stopChatSession: (chatId) => stopChatSession(chatId),
+    isChatSessionStopped: (chatId) => isChatSessionStopped(chatId),
     getPendingEnvKey: (chatId) => pendingEnvKeyByChat[String(chatId)],
     setPendingEnvKey: (chatId, key) => { pendingEnvKeyByChat[String(chatId)] = key; },
     clearPendingEnvKey: (chatId) => { delete pendingEnvKeyByChat[String(chatId)]; },
@@ -1144,6 +1284,70 @@ async function main() {
     runGitShowUpdates: () => gitAgentStatus.showUpdates(),
     runGitSuggest: () => gitAgentStatus.suggestGit(),
     runAgentRuntimeUpdate: () => gitAgentStatus.runAgentRuntimeUpdate(),
+    getCapabilitiesHtml: () => capabilities.toText(),
+    runLanScan: () => lanTracker.tick(),
+    getLanSummaryHtml: () => {
+      const inv = lanInventory.loadInventory();
+      const devices = Object.values(inv.devices || {});
+      return [
+        "<b>LAN</b>",
+        `Known devices: <code>${devices.length}</code>`,
+      ].join("\n");
+    },
+    getLanDeviceHtml: (id) => {
+      const d = lanInventory.findDevice(id);
+      if (!d) return `<b>LAN</b>\nNot found: <code>${id}</code>`;
+      return `<b>Device</b>\n<pre>${JSON.stringify(d, null, 2)}</pre>`;
+    },
+    setLanDeviceName: (id, name) => {
+      const d = lanInventory.findDevice(id);
+      if (!d) return { ok: false, reason: "not found" };
+      lanInventory.upsertDevice({ ...d, names: Array.from(new Set([...(d.names || []), String(name || "").trim()])) });
+      return { ok: true };
+    },
+    addLanDeviceTag: (id, tag) => {
+      const d = lanInventory.findDevice(id);
+      if (!d) return { ok: false, reason: "not found" };
+      lanInventory.upsertDevice({ ...d, tags: Array.from(new Set([...(d.tags || []), String(tag || "").trim()])) });
+      return { ok: true };
+    },
+    setLanDeviceWatch: (id, enabled) => {
+      const d = lanInventory.findDevice(id);
+      if (!d) return { ok: false, reason: "not found" };
+      lanInventory.upsertDevice({ ...d, metadata: { ...(d.metadata || {}), watch: !!enabled } });
+      return { ok: true };
+    },
+    runDeviceDiscovery: () => devicesDiscover.refreshAll(),
+    getDevicesHtml: () => {
+      const inv = lanInventory.loadInventory();
+      const devices = Object.values(inv.devices || {}).map((d) => ({
+        id: d.mac || d.ip,
+        ip: d.ip,
+        protocols: d.last_protocols || [],
+        names: d.names || [],
+      }));
+      return `<b>Devices</b>\n<pre>${JSON.stringify(devices, null, 2)}</pre>`;
+    },
+    getDeviceHtml: (id) => {
+      const d = deviceControl.find(id);
+      if (!d) return `<b>Device</b>\nNot found: <code>${id}</code>`;
+      return `<b>Device</b>\n<pre>${JSON.stringify(d, null, 2)}</pre>`;
+    },
+    cameraStream: (id) => deviceControl.cameraStream(id),
+    speakerPlay: (id, url) => deviceControl.speakerPlay(id, url),
+    tvOff: (id) => deviceControl.tvOff(id),
+    desktopRun: (id, cmd) => deviceControl.desktopRun(id, cmd),
+    getRouterStatusHtml: async () => `<b>Router</b>\n<pre>${JSON.stringify(await routerControl.routerStatus(), null, 2)}</pre>`,
+    getRouterDevicesHtml: async () => `<b>Router devices</b>\n<pre>${JSON.stringify(await routerControl.listDevices(), null, 2)}</pre>`,
+    setRouterWifi: (enabled, band) => routerControl.wifiSet(enabled, band),
+    suspendRouterDevice: (mac) => routerControl.suspendDevice(mac),
+    unsuspendRouterDevice: (mac) => routerControl.unsuspendDevice(mac),
+    setRadioMode: (m) => radioMode.setMode(m),
+    getHandshakeStatusHtml: () => `<b>Handshake</b>\n<pre>${JSON.stringify(handshakeWatch.status(), null, 2)}</pre>`,
+    captureHandshakeOnce: (s) => handshakeWatch.captureOnce(s),
+    createSegment: (name, vlan, subnet) => vlanProfiles.createProfile(name, vlan, subnet),
+    listSegments: () => vlanProfiles.listProfiles(),
+    joinSegment: (name, agentId) => vlanProfiles.joinAgent(name, agentId),
     getNetInfoHtml: () => netInfo.getNetInfoHtml(),
     runInstallTailscale: () => netInfo.runInstallTailscale({ appendEnv: envAppend.appendEnv }),
     getUsageReportHtml: () => buildUsageReportHtml(),
@@ -1165,6 +1369,9 @@ async function main() {
     log("PICLAW_TELEGRAM_TOKEN not set — Telegram disabled");
   }
   eventNotifier.setNotifyTarget(bot, notifyChatId);
+  lanTracker.start();
+  deviceWebProxy.start();
+  logShipper.startSchedule();
   hostHealthWatch.startHostHealthWatch({
     runtimeState: runtime_state,
     notify: (msg) => eventNotifier.notify(msg),

@@ -4,9 +4,13 @@
   "description": "Minimal embedded runtime for Raspberry Pi — standalone, no OpenClaw dependency",
   "private": true,
   "main": "piclaw.js",
+  "bin": {
+    "piclaw": "cli/piclaw-cli.js"
+  },
   "scripts": {
     "start": "node piclaw.js",
-    "gateway": "node gateway/server.js"
+    "gateway": "node gateway/server.js",
+    "cli": "node cli/piclaw-cli.js"
   },
   "dependencies": {
     "@mariozechner/pi-ai": "0.53.0",

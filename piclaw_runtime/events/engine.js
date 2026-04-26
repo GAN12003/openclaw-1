@@ -3,6 +3,7 @@
 const rules = require("./rules");
 const state = require("./state");
 const notifier = require("./notifier");
+const eventRouter = require("./event_router");
 
 function handleGPIOEvent(ev) {
   const r = rules.getRules();
@@ -19,6 +20,13 @@ function handleGPIOEvent(ev) {
   const cooldownSec = typeof pinRule.cooldown_sec === "number" ? pinRule.cooldown_sec : 30;
   if (!state.shouldFire(ruleId, cooldownSec)) return;
   notifier.notify(pinRule.notify);
+  eventRouter.emit({
+    topic: "gpio.event",
+    severity: "info",
+    summary: pinRule.notify,
+    details: { gpio: ev.gpio, value: ev.value },
+    dedupe_key: `gpio-${ev.gpio}-${ev.value}`,
+  });
   state.recordFire(ruleId);
 }
 
@@ -30,6 +38,13 @@ function handleUARTActivity(info) {
   const cooldownSec = typeof activityRule.cooldown_sec === "number" ? activityRule.cooldown_sec : 60;
   if (!state.shouldFire(ruleId, cooldownSec)) return;
   notifier.notify(activityRule.notify);
+  eventRouter.emit({
+    topic: "uart.activity",
+    severity: "info",
+    summary: activityRule.notify,
+    details: { device: info && info.device ? info.device : "unknown" },
+    dedupe_key: `uart-${info && info.device ? info.device : "unknown"}`,
+  });
   state.recordFire(ruleId);
 }
 

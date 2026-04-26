@@ -1,6 +1,6 @@
 "use strict";
 
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
 const { promisify } = require("util");
 const os = require("os");
 const path = require("path");
@@ -20,6 +20,29 @@ function getUpstreamRef() {
   return (process.env.PICLAW_GIT_UPSTREAM_REF || "origin/main").trim() || "origin/main";
 }
 
+async function getCurrentBranch(root) {
+  const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "--abbrev-ref", "HEAD"], {
+    timeout: 10000,
+    maxBuffer: 64 * 1024,
+    windowsHide: true,
+  });
+  return String(stdout || "").trim() || "HEAD";
+}
+
+async function getTrackedUpstream(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
+      timeout: 10000,
+      maxBuffer: 64 * 1024,
+      windowsHide: true,
+    });
+    const out = String(stdout || "").trim();
+    return out || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function getUpdateScriptPath() {
   return path.join(__dirname, "..", "scripts", "agent-runtime-update.sh");
 }
@@ -30,7 +53,7 @@ function getUpdateScriptPath() {
  */
 async function showUpdates(timeoutMs = 90000) {
   const root = getGitCloneRoot();
-  const upstream = getUpstreamRef();
+  const configuredUpstream = getUpstreamRef();
   try {
     await execFileAsync("git", ["-C", root, "fetch", "origin"], {
       timeout: timeoutMs,
@@ -41,12 +64,23 @@ async function showUpdates(timeoutMs = 90000) {
     return { ok: false, error: `git fetch: ${e.message || String(e)}` };
   }
   try {
+    const branch = await getCurrentBranch(root);
+    const tracked = await getTrackedUpstream(root);
+    const upstream = configuredUpstream || tracked || "origin/main";
     const { stdout: countOut } = await execFileAsync(
       "git",
       ["-C", root, "rev-list", "--count", `HEAD..${upstream}`],
       { timeout: 15000, maxBuffer: 64 * 1024, windowsHide: true }
     );
     const behind = Number(String(countOut || "").trim()) || 0;
+    const { stdout: lrOut } = await execFileAsync(
+      "git",
+      ["-C", root, "rev-list", "--left-right", "--count", `${upstream}...HEAD`],
+      { timeout: 15000, maxBuffer: 64 * 1024, windowsHide: true }
+    );
+    const parts = String(lrOut || "").trim().split(/\s+/);
+    const behindLr = Number(parts[0] || 0) || 0;
+    const aheadLr = Number(parts[1] || 0) || 0;
     const { stdout: logOut } = await execFileAsync(
       "git",
       ["-C", root, "log", "--oneline", `HEAD..${upstream}`, "-n", "20"],
@@ -55,8 +89,11 @@ async function showUpdates(timeoutMs = 90000) {
     const lines = [
       `<b>Git updates</b>`,
       `clone: <code>${root}</code>`,
+      `branch: <code>${escapeHtml(branch)}</code>`,
+      `tracked upstream: <code>${escapeHtml(tracked || "(none)")}</code>`,
       `upstream: <code>${upstream}</code>`,
       `commits behind upstream: <b>${behind}</b>`,
+      `ahead/behind vs upstream: <b>${aheadLr}</b>/<b>${behindLr}</b>`,
       "",
       behind ? "<pre>" + escapeHtml(logOut.trim() || "(empty)") + "</pre>" : "<i>Up to date with upstream tip on this branch.</i>",
     ];
@@ -84,7 +121,7 @@ async function suggestGit(timeoutMs = 30000) {
       maxBuffer: 512 * 1024,
       windowsHide: true,
     });
-    const { stdout: diff } = await execFileAsync("git", ["-C", root, "diff", "--stat", "--max-count=80"], {
+    const { stdout: diff } = await execFileAsync("git", ["-C", root, "diff", "--stat"], {
       timeout: timeoutMs,
       maxBuffer: 512 * 1024,
       windowsHide: true,
@@ -107,24 +144,43 @@ async function runAgentRuntimeUpdate(timeoutMs = 600000) {
   if (!fs.existsSync(script)) {
     return { ok: false, error: `Update script missing: ${script}` };
   }
-  try {
-    const { stdout, stderr } = await execFileAsync("bash", [script], {
-      timeout: timeoutMs,
-      maxBuffer: 4 * 1024 * 1024,
-      windowsHide: true,
+  return new Promise((resolve) => {
+    const child = spawn("bash", [script], {
       env: { ...process.env, PATH: process.env.PATH || "/usr/bin:/bin" },
+      windowsHide: true,
     });
-    return { ok: true, stdout: stdout || "", stderr: stderr || "" };
-  } catch (e) {
-    const stdout = e.stdout != null ? String(e.stdout) : "";
-    const stderr = e.stderr != null ? String(e.stderr) : "";
-    return {
-      ok: false,
-      stdout,
-      stderr,
-      error: e.message || String(e),
-    };
-  }
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const maxBuffer = 4 * 1024 * 1024;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
+    child.stdout.on("data", (buf) => {
+      stdout += String(buf || "");
+      if (stdout.length > maxBuffer) stdout = stdout.slice(-maxBuffer);
+    });
+    child.stderr.on("data", (buf) => {
+      stderr += String(buf || "");
+      if (stderr.length > maxBuffer) stderr = stderr.slice(-maxBuffer);
+    });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, stdout, stderr, error: e.message || String(e) });
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0 && !timedOut) {
+        resolve({ ok: true, stdout, stderr });
+        return;
+      }
+      const reason = timedOut
+        ? `update timed out after ${timeoutMs}ms`
+        : `update failed (code=${code == null ? "null" : code}, signal=${signal || "none"})`;
+      resolve({ ok: false, stdout, stderr, error: reason });
+    });
+  });
 }
 
 module.exports = {

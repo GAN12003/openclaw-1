@@ -217,8 +217,11 @@ async function runInstallTailscale({ appendEnv } = {}) {
   }
 
   const status = parseScriptKv(stdout);
+  const state = String(status.TAILSCALE_STATE || "").trim().toLowerCase();
+  const hasIp4 = String(status.TAILSCALE_IP4 || "").trim().length > 0;
+  const healthy = state === "running" && hasIp4;
   let redacted = false;
-  if (ok && authKey && typeof appendEnv === "function") {
+  if (ok && healthy && authKey && typeof appendEnv === "function") {
     try {
       const r = await appendEnv("PICLAW_TAILSCALE_AUTHKEY", "");
       redacted = !!(r && r.ok);
@@ -226,7 +229,7 @@ async function runInstallTailscale({ appendEnv } = {}) {
       redacted = false;
     }
   }
-  return { ok, stdout, stderr, error, status, redacted };
+  return { ok, stdout, stderr, error, status, redacted, healthy };
 }
 
 function parseScriptKv(stdout) {

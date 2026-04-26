@@ -1,5 +1,7 @@
 "use strict";
 
+const eventRouter = require("./event_router");
+
 let bot = null;
 let chatId = null;
 
@@ -10,6 +12,12 @@ function setNotifyTarget(telegramBot, telegramChatId) {
 
 function notify(message) {
   try {
+    eventRouter.emit({
+      topic: "notify.owner",
+      summary: String(message || ""),
+      details: { channel: "telegram" },
+      dedupe_key: String(message || "").slice(0, 128),
+    });
     if (bot && chatId) {
       bot.sendMessage(chatId, message).catch(() => {});
     } else {

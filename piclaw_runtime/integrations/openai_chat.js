@@ -360,6 +360,21 @@ const READ_FILE_TOOL = {
   },
 };
 
+const PICLAW_CLI_TOOL = {
+  type: "function",
+  function: {
+    name: "piclaw_cli",
+    description: "Run allow-listed local piclaw CLI commands (lan/devices/router/radio/capabilities).",
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "CLI args after 'piclaw', e.g. 'lan list'." },
+      },
+      required: ["command"],
+    },
+  },
+};
+
 /** Learn tool: store a procedure in learned_tools so it can be recalled later (injected into system prompt). */
 const LEARN_TOOL = {
   type: "function",
@@ -435,12 +450,13 @@ async function chatWithTools(messages, apiKey, executeTool) {
     MEMORY_SEARCH_TOOL,
     MEMORY_RECALL_SEMANTIC_TOOL,
     READ_FILE_TOOL,
+    PICLAW_CLI_TOOL,
     LEARN_TOOL,
     SET_SELF_SUMMARY_TOOL,
     SET_WRITING_STYLE_TOOL,
   ];
-  const parsed = parseInt(process.env.PICLAW_CHAT_MAX_TOOL_ROUNDS || "16", 10);
-  const maxRounds = Number.isFinite(parsed) ? Math.min(32, Math.max(4, parsed)) : 16;
+  const parsed = parseInt(process.env.PICLAW_CHAT_MAX_TOOL_ROUNDS || "8", 10);
+  const maxRounds = Number.isFinite(parsed) ? Math.min(32, Math.max(4, parsed)) : 8;
   let round = 0;
 
   while (round < maxRounds) {
@@ -526,6 +542,7 @@ module.exports = {
   MEMORY_SEARCH_TOOL,
   MEMORY_RECALL_SEMANTIC_TOOL,
   READ_FILE_TOOL,
+  PICLAW_CLI_TOOL,
   LEARN_TOOL,
   SET_SELF_SUMMARY_TOOL,
   SET_WRITING_STYLE_TOOL,

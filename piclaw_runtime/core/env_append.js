@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const ENV_PATH = path.join(__dirname, "..", ".env");
+const ENV_LOCK_PATH = `${ENV_PATH}.lock`;
 
 /** Only PICLAW_* and OPENAI_* keys may be set via Telegram /set_key (see .env.example). */
 const ALLOWED_PREFIXES = ["PICLAW_", "OPENAI_"];
@@ -59,6 +60,24 @@ function getAllowedKeys() {
     "PICLAW_GITHUB_USERNAME",
     "PICLAW_GITHUB_ORG",
     "PICLAW_TAILSCALE_AUTHKEY",
+    "PICLAW_NOTIFIER_URL",
+    "PICLAW_NOTIFIER_HMAC_SECRET",
+    "PICLAW_NOTIFIER_AGENT_ID",
+    "PICLAW_NOTIFIER_DEFAULT_SEVERITY",
+    "PICLAW_COLLECTOR_URL",
+    "PICLAW_COLLECTOR_HMAC_SECRET",
+    "PICLAW_LOG_SHIP_INTERVAL_MS",
+    "PICLAW_ROUTER_CONTROL_ENABLED",
+    "PICLAW_FRITZ_HOST",
+    "PICLAW_FRITZ_USER",
+    "PICLAW_FRITZ_PASSWORD",
+    "PICLAW_LAN_TRACK_INTERVAL_MS",
+    "PICLAW_AP_SSID",
+    "PICLAW_AP_PASSPHRASE",
+    "PICLAW_AP_CHANNEL",
+    "PICLAW_AP_SUBNET",
+    "PICLAW_HANDSHAKE_CAPTURE_ENABLED",
+    "PICLAW_DEVICE_WEB_PORT",
     "PICLAW_GIT_CLONE_ROOT",
     "PICLAW_GIT_UPSTREAM_REF",
     "PICLAW_RUNTIME_INSTALL",
@@ -84,6 +103,10 @@ function getAllowedKeys() {
     "PICLAW_WALLET_SOLANA_PRIVATE_KEY",
     "PICLAW_OPENAI_BUDGET_UNITS_PER_1K_TOTAL",
     "PICLAW_IDENTITY_PATH",
+    "PICLAW_LAB_NAME",
+    "PICLAW_LAB_ZONE",
+    "PICLAW_PHYSICAL_LOCATION",
+    "PICLAW_DEPLOYMENT_NOTE",
     "PICLAW_GOAL_REVIEW_INTERVAL_HOURS",
     "PICLAW_AGENCY_INTERVAL_MIN",
     "PICLAW_PRESENCE_INTERVAL_MIN",
@@ -124,43 +147,75 @@ async function appendEnv(key, value) {
 
   const lineVal = escapeEnvLine(value);
 
-  let content = "";
-  try {
-    content = fs.readFileSync(ENV_PATH, "utf8");
-  } catch (_) {
-    content = "";
-  }
+  const lock = await acquireEnvLock();
+  if (!lock.ok) return { ok: false, reason: lock.reason || "failed to acquire env lock" };
 
-  const lines = content.split(/\n/);
-  const keyRe = new RegExp("^" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*=");
-  let found = false;
-  const out = lines.map((line) => {
-    const t = line.trim();
-    if (t && !t.startsWith("#") && keyRe.test(line)) {
-      found = true;
-      return `${k}=${lineVal}`;
+  const tmp = `${ENV_PATH}.tmp.${process.pid}.${Date.now()}`;
+  try {
+    let content = "";
+    try {
+      content = fs.readFileSync(ENV_PATH, "utf8");
+    } catch (_) {
+      content = "";
     }
-    return line;
-  });
-  if (!found) {
-    out.push(`${k}=${lineVal}`);
-  }
 
-  const body = out.join("\n");
-  const finalBody = body.endsWith("\n") ? body : `${body}\n`;
-  const tmp = `${ENV_PATH}.tmp`;
-  try {
+    const lines = content.split(/\n/);
+    const keyRe = new RegExp("^" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*=");
+    let found = false;
+    const out = lines.map((line) => {
+      const t = line.trim();
+      if (t && !t.startsWith("#") && keyRe.test(line)) {
+        found = true;
+        return `${k}=${lineVal}`;
+      }
+      return line;
+    });
+    if (!found) {
+      out.push(`${k}=${lineVal}`);
+    }
+
+    const body = out.join("\n");
+    const finalBody = body.endsWith("\n") ? body : `${body}\n`;
     fs.writeFileSync(tmp, finalBody, { mode: 0o600 });
     fs.renameSync(tmp, ENV_PATH);
   } catch (e) {
     try {
       fs.unlinkSync(tmp);
     } catch (_) {}
+    releaseEnvLock(lock.fd);
     return { ok: false, reason: e.message || String(e) };
   }
+  releaseEnvLock(lock.fd);
 
   process.env[k] = String(value ?? "").replace(/\r?\n/g, " ").trim();
   return { ok: true };
+}
+
+async function acquireEnvLock(timeoutMs = 5000, pollMs = 50) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const fd = fs.openSync(ENV_LOCK_PATH, "wx", 0o600);
+      return { ok: true, fd };
+    } catch (e) {
+      if (e && e.code !== "EEXIST") return { ok: false, reason: e.message || String(e) };
+    }
+    await sleep(pollMs);
+  }
+  return { ok: false, reason: "timeout waiting for env lock" };
+}
+
+function releaseEnvLock(fd) {
+  try {
+    fs.closeSync(fd);
+  } catch (_) {}
+  try {
+    fs.unlinkSync(ENV_LOCK_PATH);
+  } catch (_) {}
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 module.exports = { appendEnv, isAllowedKey, getAllowedKeys, normalizeSetKeyName, ENV_PATH };

@@ -133,6 +133,42 @@ function formatQuotedNonTextHint(rt) {
   return "[non-text message]";
 }
 
+function escapeHtml(text) {
+  return String(text == null ? "" : text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function tailText(parts, maxChars = 3500) {
+  const body = parts.filter(Boolean).join("\n").trim();
+  if (!body) return "(no output)";
+  return body.length > maxChars ? body.slice(-maxChars) : body;
+}
+
+function formatFailureHtml(parts, maxChars = 3500) {
+  return `<b>Failed</b>\n<pre>${escapeHtml(tailText(parts, maxChars))}</pre>`;
+}
+
+function createMaintenanceGuard() {
+  let active = null;
+  return {
+    enter(name) {
+      if (active) {
+        return { ok: false, active };
+      }
+      active = { name, startedAt: Date.now() };
+      return { ok: true, active };
+    },
+    leave(name) {
+      if (active && active.name === name) active = null;
+    },
+    status() {
+      return active;
+    },
+  };
+}
+
 /**
  * Prefix the user turn so the model sees what Telegram message they replied to.
  * @param {object} msg - incoming Message
@@ -185,6 +221,7 @@ function createBot(getStatusText, options = {}) {
   });
   console.log("[piclaw] Telegram polling started (allowed_updates includes message_reaction)");
   console.log("[piclaw] Telegram group natural-chat mode:", getTelegramGroupReplyMode(), "(groups: mention = only @this_bot or reply-to-this-bot; set PICLAW_TELEGRAM_GROUP_REPLY_MODE=all for legacy)");
+  const maintenance = createMaintenanceGuard();
 
   // User-friendly command menu (shown when user types / in Telegram)
   bot.setMyCommands([
@@ -192,17 +229,23 @@ function createBot(getStatusText, options = {}) {
     { command: "whoami", description: "Identity & goals" },
     { command: "menu", description: "Quick actions" },
     { command: "help", description: "All commands" },
+    { command: "new", description: "Reset chat session (owner)" },
+    { command: "stop", description: "Pause chat replies (owner)" },
     { command: "setup", description: "Setup & env keys" },
     { command: "github", description: "GitHub auth" },
     { command: "twitter", description: "Twitter status" },
     { command: "hw", description: "Hardware (UART, GPIO)" },
     { command: "update", description: "A/B slot switch (needs piclaw-update)" },
-    { command: "showupdates", description: "Commits behind main (owner)" },
+    { command: "showupdates", description: "Commits behind upstream (owner)" },
     { command: "suggestgit", description: "Git status on clone (owner)" },
     { command: "updateandrestart", description: "Pull rsync npm restart (owner)" },
     { command: "usage", description: "Chat API usage ledger (owner)" },
     { command: "resources", description: "Host + token logs summary (owner)" },
     { command: "logs_summary", description: "Parse logs summary (owner)" },
+    { command: "capabilities", description: "Runtime capabilities (owner)" },
+    { command: "lan", description: "LAN summary (owner)" },
+    { command: "devices", description: "Discovered devices (owner)" },
+    { command: "router_status", description: "Router health (owner)" },
   ]).catch((err) => console.warn("[piclaw] setMyCommands failed:", err.message));
 
   bot.on("polling_error", (err) => {
@@ -267,6 +310,13 @@ function createBot(getStatusText, options = {}) {
         }
       }
       if (text.startsWith("/")) return;
+      if (typeof options.isSessionStopped === "function" && options.isSessionStopped(chatId)) {
+        if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId, msg.from && msg.from.id)) {
+          return;
+        }
+        await bot.sendMessage(chatId, "Session is paused. Send /new to resume with a fresh chat context.");
+        return;
+      }
       if (typeof options.isPendingCodexRedirect === "function" && options.isPendingCodexRedirect(chatId)) {
         const fromId = msg.from && msg.from.id;
         if (typeof options.isOwnerChat === "function" && !options.isOwnerChat(chatId, fromId)) return;
@@ -607,10 +657,17 @@ function createBot(getStatusText, options = {}) {
     // Anchor: unanchored /\/update/ matches "/updateandrestart" (prefix).
     bot.onText(/^\/update(?:@\S+)?$/, async (msg) => {
       const chatId = msg.chat.id;
+      const lock = maintenance.enter("update");
+      if (!lock.ok) {
+        const elapsed = Math.max(0, Math.round((Date.now() - lock.active.startedAt) / 1000));
+        await bot.sendMessage(chatId, `Maintenance already running: /${lock.active.name} (${elapsed}s ago).`);
+        return;
+      }
       try {
         const result = await options.requestUpdate();
         if (result.ok) {
-          await bot.sendMessage(chatId, "Update requested — switching slot on next restart.");
+          const out = tailText([result.stdout, result.stderr]);
+          await bot.sendMessage(chatId, `<b>Update requested</b>\n<pre>${escapeHtml(out)}</pre>`, { parse_mode: "HTML" });
         } else {
           const stderr = (result.stderr || "").toLowerCase();
           const abMissing = /not found|command not found|enoent/.test(stderr);
@@ -622,13 +679,15 @@ function createBot(getStatusText, options = {}) {
                 "For the usual flow (git pull → rsync → npm → restart), use <b>/updateandrestart</b> from the owner chat.",
                 "A/B setup: <code>piclaw_runtime/docs/AB-UPDATE.md</code>.",
               ].join("\n")
-            : `${result.stderr || result.stdout || "unknown"}`.trim().slice(0, 400);
+            : tailText([result.stdout, result.stderr, result.error], 1200);
           await bot.sendMessage(chatId, abMissing ? `Update failed.\n${friendly}` : `Update failed. ${friendly}`, {
             parse_mode: abMissing ? "HTML" : undefined,
           });
         }
       } catch (err) {
         await bot.sendMessage(chatId, `Error: ${err.message}`);
+      } finally {
+        maintenance.leave("update");
       }
     });
   }
@@ -692,32 +751,37 @@ function createBot(getStatusText, options = {}) {
           await bot.sendMessage(chatId, "Only the owner can run /install_tailscale.");
           return;
         }
+        const lock = maintenance.enter("install_tailscale");
+        if (!lock.ok) {
+          const elapsed = Math.max(0, Math.round((Date.now() - lock.active.startedAt) / 1000));
+          await bot.sendMessage(chatId, `Maintenance already running: /${lock.active.name} (${elapsed}s ago).`);
+          return;
+        }
         await bot.sendMessage(chatId, "Installing/joining Tailscale… (this may take 30–90s on a Pi 0)");
         const r = await options.runInstallTailscale();
-        const escape = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         if (r.ok) {
           const s = r.status || {};
+          const state = String(s.TAILSCALE_STATE || "unknown");
+          const partial = String(r.healthy ? "" : " (partial)");
           const lines = [
             "<b>Tailscale</b>",
-            `State:    <code>${escape(s.TAILSCALE_STATE || "unknown")}</code>`,
-            `Hostname: <code>${escape(s.TAILSCALE_HOSTNAME || "")}</code>`,
-            `IPv4:     <code>${escape(s.TAILSCALE_IP4 || "n/a")}</code>`,
+            `State:    <code>${escapeHtml(state)}</code>${escapeHtml(partial)}`,
+            `Hostname: <code>${escapeHtml(s.TAILSCALE_HOSTNAME || "")}</code>`,
+            `IPv4:     <code>${escapeHtml(s.TAILSCALE_IP4 || "n/a")}</code>`,
           ];
           if (s.TAILSCALE_IP4) {
-            lines.push(`SSH:      <code>ssh ${escape(process.env.USER || "pi")}@${escape(s.TAILSCALE_IP4)}</code>`);
+            lines.push(`SSH:      <code>ssh ${escapeHtml(process.env.USER || "pi")}@${escapeHtml(s.TAILSCALE_IP4)}</code>`);
           }
+          if (!r.healthy) lines.push("Health:   post-check not fully healthy yet; rerun /net in 10-20s.");
           if (r.redacted) lines.push("\nAuth key cleared from .env (single-use).");
           await bot.sendMessage(chatId, lines.join("\n"), { parse_mode: "HTML" });
         } else {
-          const tail = [r.stdout, r.stderr, r.error].filter(Boolean).join("\n").trim().slice(-3500);
-          await bot.sendMessage(
-            chatId,
-            `<b>Failed</b>\n<pre>${escape(tail || "(no output)")}</pre>`,
-            { parse_mode: "HTML" }
-          );
+          await bot.sendMessage(chatId, formatFailureHtml([r.stdout, r.stderr, r.error]), { parse_mode: "HTML" });
         }
       } catch (err) {
         await bot.sendMessage(chatId, `Error: ${err.message}`);
+      } finally {
+        maintenance.leave("install_tailscale");
       }
     });
   }
@@ -746,21 +810,25 @@ function createBot(getStatusText, options = {}) {
           );
           return;
         }
+        const lock = maintenance.enter("updateandrestart");
+        if (!lock.ok) {
+          const elapsed = Math.max(0, Math.round((Date.now() - lock.active.startedAt) / 1000));
+          await bot.sendMessage(chatId, `Maintenance already running: /${lock.active.name} (${elapsed}s ago).`);
+          return;
+        }
         await bot.sendMessage(chatId, "Running update script (git pull, rsync, npm, restart). This may take a few minutes…");
         const r = await options.runAgentRuntimeUpdate();
         if (r.ok) {
-          const tail = [r.stdout, r.stderr].filter(Boolean).join("\n").trim().slice(-3500);
-          await bot.sendMessage(chatId, `<b>Done</b>\n<pre>${String(tail).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`, {
+          await bot.sendMessage(chatId, `<b>Done</b>\n<pre>${escapeHtml(tailText([r.stdout, r.stderr]))}</pre>`, {
             parse_mode: "HTML",
           });
         } else {
-          const tail = [r.stdout, r.stderr, r.error].filter(Boolean).join("\n").trim().slice(0, 3500);
-          await bot.sendMessage(chatId, `<b>Failed</b>\n<pre>${String(tail).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`, {
-            parse_mode: "HTML",
-          });
+          await bot.sendMessage(chatId, formatFailureHtml([r.stdout, r.stderr, r.error]), { parse_mode: "HTML" });
         }
       } catch (err) {
         await bot.sendMessage(chatId, `Error: ${err.message}`);
+      } finally {
+        maintenance.leave("updateandrestart");
       }
     });
   }
@@ -877,6 +945,219 @@ function createBot(getStatusText, options = {}) {
       } catch (err) {
         await bot.sendMessage(chatId, `Error: ${err.message}`);
       }
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.resetChatSession === "function") {
+    bot.onText(/^\/new(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
+          await bot.sendMessage(chatId, "Only the owner can run /new.");
+          return;
+        }
+        options.resetChatSession(chatId);
+        if (typeof options.clearPendingEnvKey === "function") options.clearPendingEnvKey(chatId);
+        await bot.sendMessage(chatId, "Started a new session. Previous chat memory for this chat was cleared.");
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.stopChatSession === "function") {
+    bot.onText(/^\/stop(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) {
+          await bot.sendMessage(chatId, "Only the owner can run /stop.");
+          return;
+        }
+        options.stopChatSession(chatId);
+        await bot.sendMessage(chatId, "Session paused for this chat. Send /new to clear context and resume.");
+      } catch (err) {
+        await bot.sendMessage(chatId, `Error: ${err.message}`);
+      }
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.getCapabilitiesHtml === "function") {
+    bot.onText(/^\/capabilities(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /capabilities.");
+      const text = await options.getCapabilitiesHtml();
+      await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+    });
+  }
+
+  if (typeof options.isOwnerChat === "function" && typeof options.getLanSummaryHtml === "function") {
+    bot.onText(/^\/lan(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /lan.");
+      if (typeof options.runLanScan === "function") await options.runLanScan();
+      await bot.sendMessage(chatId, options.getLanSummaryHtml(), { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.getLanDeviceHtml === "function") {
+    bot.onText(/^\/lan_show(?:@\S+)?\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /lan_show.");
+      await bot.sendMessage(chatId, options.getLanDeviceHtml((match && match[1]) || ""), { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.setLanDeviceName === "function") {
+    bot.onText(/^\/lan_name(?:@\S+)?\s+(\S+)\s+(.+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /lan_name.");
+      const r = options.setLanDeviceName(match[1], match[2]);
+      await bot.sendMessage(chatId, r.ok ? "Saved." : `Failed: ${r.reason || "unknown"}`);
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.addLanDeviceTag === "function") {
+    bot.onText(/^\/lan_tag(?:@\S+)?\s+(\S+)\s+(.+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /lan_tag.");
+      const r = options.addLanDeviceTag(match[1], match[2]);
+      await bot.sendMessage(chatId, r.ok ? "Saved." : `Failed: ${r.reason || "unknown"}`);
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.setLanDeviceWatch === "function") {
+    bot.onText(/^\/lan_watch(?:@\S+)?\s+(\S+)(?:\s+(on|off))?/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /lan_watch.");
+      const enabled = String(match[2] || "on").toLowerCase() !== "off";
+      const r = options.setLanDeviceWatch(match[1], enabled);
+      await bot.sendMessage(chatId, r.ok ? `watch=${enabled ? "on" : "off"}` : `Failed: ${r.reason || "unknown"}`);
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.runDeviceDiscovery === "function") {
+    bot.onText(/^\/devices(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /devices.");
+      await options.runDeviceDiscovery();
+      const text = typeof options.getDevicesHtml === "function" ? options.getDevicesHtml() : "ok";
+      await bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.getDeviceHtml === "function") {
+    bot.onText(/^\/device_show(?:@\S+)?\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /device_show.");
+      await bot.sendMessage(chatId, options.getDeviceHtml(match[1]), { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.cameraStream === "function") {
+    bot.onText(/^\/cam_stream(?:@\S+)?\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /cam_stream.");
+      const r = await options.cameraStream(match[1]);
+      await bot.sendMessage(chatId, `<pre>${escapeHtml(JSON.stringify(r, null, 2))}</pre>`, { parse_mode: "HTML" });
+    });
+    bot.onText(/^\/speaker_play(?:@\S+)?\s+(\S+)\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /speaker_play.");
+      const r = await options.speakerPlay(match[1], match[2]);
+      await bot.sendMessage(chatId, `<pre>${escapeHtml(JSON.stringify(r, null, 2))}</pre>`, { parse_mode: "HTML" });
+    });
+    bot.onText(/^\/tv_off(?:@\S+)?\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /tv_off.");
+      const r = await options.tvOff(match[1]);
+      await bot.sendMessage(chatId, `<pre>${escapeHtml(JSON.stringify(r, null, 2))}</pre>`, { parse_mode: "HTML" });
+    });
+    bot.onText(/^\/desktop_run(?:@\S+)?\s+(\S+)\s+(.+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /desktop_run.");
+      const r = await options.desktopRun(match[1], match[2]);
+      await bot.sendMessage(chatId, `<pre>${escapeHtml(JSON.stringify(r, null, 2))}</pre>`, { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.getRouterStatusHtml === "function") {
+    bot.onText(/^\/router_status(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /router_status.");
+      await bot.sendMessage(chatId, await options.getRouterStatusHtml(), { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.getRouterDevicesHtml === "function") {
+    bot.onText(/^\/router_devices(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /router_devices.");
+      await bot.sendMessage(chatId, await options.getRouterDevicesHtml(), { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.setRouterWifi === "function") {
+    bot.onText(/^\/wifi_(on|off)(?:@\S+)?(?:\s+(\S+))?$/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /wifi_on or /wifi_off.");
+      const on = match[1] === "on";
+      const band = match[2] || "all";
+      const r = await options.setRouterWifi(on, band);
+      await bot.sendMessage(chatId, r.ok ? "Requested." : `Failed: ${r.reason || "unknown"}`);
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.suspendRouterDevice === "function") {
+    bot.onText(/^\/suspend(?:@\S+)?\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /suspend.");
+      const r = await options.suspendRouterDevice(match[1]);
+      await bot.sendMessage(chatId, r.ok ? "Requested." : `Failed: ${r.reason || "unknown"}`);
+    });
+    bot.onText(/^\/unsuspend(?:@\S+)?\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /unsuspend.");
+      const r = await options.unsuspendRouterDevice(match[1]);
+      await bot.sendMessage(chatId, r.ok ? "Requested." : `Failed: ${r.reason || "unknown"}`);
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.setRadioMode === "function") {
+    bot.onText(/^\/(ap_on|ap_off|monitor_on|monitor_off)(?:@\S+)?$/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run radio mode commands.");
+      const map = { ap_on: "ap", ap_off: "idle", monitor_on: "monitor", monitor_off: "idle" };
+      const r = await options.setRadioMode(map[match[1]]);
+      await bot.sendMessage(chatId, r.ok ? `Radio mode: ${r.mode}` : `Failed: ${r.reason || "unknown"}`);
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.getHandshakeStatusHtml === "function") {
+    bot.onText(/^\/handshake_status(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /handshake_status.");
+      await bot.sendMessage(chatId, options.getHandshakeStatusHtml(), { parse_mode: "HTML" });
+    });
+    bot.onText(/^\/handshake_list(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /handshake_list.");
+      await bot.sendMessage(chatId, options.getHandshakeStatusHtml(), { parse_mode: "HTML" });
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.captureHandshakeOnce === "function") {
+    bot.onText(/^\/handshake_capture(?:@\S+)?(?:\s+(\d+))?$/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /handshake_capture.");
+      const sec = match && match[1] ? parseInt(match[1], 10) : 20;
+      const r = await options.captureHandshakeOnce(sec);
+      await bot.sendMessage(chatId, r.ok ? `Saved: ${r.file}` : `Failed: ${r.reason || r.stderr || "unknown"}`);
+    });
+  }
+  if (typeof options.isOwnerChat === "function" && typeof options.createSegment === "function") {
+    bot.onText(/^\/segment_create(?:@\S+)?\s+(\S+)\s+(\S+)\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /segment_create.");
+      const p = options.createSegment(match[1], match[2], match[3]);
+      await bot.sendMessage(chatId, `<pre>${escapeHtml(JSON.stringify(p, null, 2))}</pre>`, { parse_mode: "HTML" });
+    });
+    bot.onText(/^\/segment_list(?:@\S+)?$/, async (msg) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /segment_list.");
+      const p = options.listSegments();
+      await bot.sendMessage(chatId, `<pre>${escapeHtml(JSON.stringify(p, null, 2))}</pre>`, { parse_mode: "HTML" });
+    });
+    bot.onText(/^\/segment_join(?:@\S+)?\s+(\S+)\s+(\S+)/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      if (!options.isOwnerChat(chatId, msg.from && msg.from.id)) return bot.sendMessage(chatId, "Only the owner can run /segment_join.");
+      const p = options.joinSegment(match[1], match[2]);
+      await bot.sendMessage(chatId, `<pre>${escapeHtml(JSON.stringify(p, null, 2))}</pre>`, { parse_mode: "HTML" });
     });
   }
 
@@ -1017,6 +1298,8 @@ function createBot(getStatusText, options = {}) {
       "/status — system status",
       "/whoami — identity, mission, goals",
       "/menu — quick actions (buttons)",
+      "/new — clear this chat session memory and resume (owner)",
+      "/stop — pause chat replies for this chat (owner; resume with /new)",
       "/review_status — last goal review",
       "/selfcheck — runtime slot, version",
       "/hw — hardware (UART, GPIO)",
@@ -1028,6 +1311,26 @@ function createBot(getStatusText, options = {}) {
       "/gpio — GPIO control (pulse/set)",
       "/update — A/B slot switch only (needs piclaw-update; see docs/AB-UPDATE.md)",
       "/net — local/public IP, Tailscale state, ssh ready hint (owner)",
+      "/capabilities — runtime capability matrix (owner)",
+      "/lan — LAN summary + fresh scan (owner)",
+      "/lan_show <ip|mac> — show one tracked device (owner)",
+      "/lan_name <ip|mac> <name> — assign human name (owner)",
+      "/lan_tag <ip|mac> <tag> — assign metadata tag (owner)",
+      "/lan_watch <ip|mac> [on|off] — watchlist toggle (owner)",
+      "/devices — refresh protocol discovery + list (owner)",
+      "/device_show <id> — details for one device (owner)",
+      "/cam_stream <id> — camera stream metadata (owner)",
+      "/speaker_play <id> <url> — play media on speaker/tv adapter (owner)",
+      "/tv_off <id> — power command scaffold (owner)",
+      "/desktop_run <id> <cmd> — ssh command scaffold (owner)",
+      "/router_status — FRITZ/TR-064 status (owner)",
+      "/router_devices — FRITZ host list / placeholder (owner)",
+      "/wifi_on [band] | /wifi_off [band] — router WLAN control (owner)",
+      "/suspend <mac> | /unsuspend <mac> — router host control (owner)",
+      "/ap_on | /ap_off — set wlan1 AP/idle mode (owner)",
+      "/monitor_on | /monitor_off — set wlan1 monitor/idle mode (owner)",
+      "/handshake_status | /handshake_list | /handshake_capture [sec] (owner)",
+      "/segment_create <name> <vlan> <subnet> | /segment_list | /segment_join <name> <agent> (owner)",
       "/install_tailscale — install + join Tailscale using PICLAW_TAILSCALE_AUTHKEY (owner)",
       "/showupdates — commits on upstream not merged into current clone HEAD (owner)",
       "/suggestgit — git status + diff stat in PICLAW_GIT_CLONE_ROOT (owner)",
